@@ -3193,12 +3193,11 @@ extension Customoji {
     }
 }
 
-// Agentgram: in a debug build a push that could not be opened says where it stopped, instead of an empty one
+// Agentgram: while pushes are being set up, a push that could not be opened says where it stopped, instead of an empty one
 private func agentgramDebugContent(_ reason: String) -> NotificationContent {
     var content = NotificationContent(isLockedMessage: nil)
-    #if DEBUG
+    // TODO before the App Store: only in debug builds
     content.title = "Agentgram"
     content.body = "push: " + reason
-    #endif
     return content
 }
