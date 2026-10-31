@@ -5,6 +5,7 @@ import Display
 import AsyncDisplayKit
 import SwiftSignalKit
 import TelegramCore
+import Superfolders
 import TelegramPresentationData
 import TelegramUIPreferences
 import AccountContext
@@ -1599,7 +1600,7 @@ public final class ChatListNode: ListViewImpl {
                     } else {
                         location = .group(groupId._asGroup())
                     }
-                    let _ = (context.engine.peers.toggleItemPinned(location: location, itemId: itemId)
+                    let _ = (chatListToggleItemPinned(engine: context.engine, location: location, itemId: itemId)
                     |> deliverOnMainQueue).startStandalone(next: { result in
                         if let strongSelf = self {
                             switch result {
@@ -2170,8 +2171,15 @@ public final class ChatListNode: ListViewImpl {
         
         let chatListFilters: Signal<[ChatListFilter]?, NoError>
         if case .chatList = mode {
+            // Inside the superfolder the tags are its own folders.
+            let tagFolders: Signal<[ChatListFilter], NoError>
+            if Superfolders.isOwnFilterId(chatListFilter?.id) {
+                tagFolders = Superfolders.settings(engine: context.engine) |> map { $0.folders.map { Superfolders.filter(folder: $0) } }
+            } else {
+                tagFolders = context.engine.peers.updatedChatListFilters()
+            }
             chatListFilters = combineLatest(queue: .mainQueue(),
-                context.engine.peers.updatedChatListFilters(),
+                tagFolders,
                 context.engine.data.subscribe(
                     TelegramEngine.EngineData.Item.ChatList.FiltersDisplayTags()
                 )
@@ -2969,7 +2977,7 @@ public final class ChatListNode: ListViewImpl {
                     }
                     
                     let engine = strongSelf.context.engine
-                    return engine.peers.getPinnedItemIds(location: location)
+                    return chatListPinnedItemIds(engine: engine, location: location)
                     |> mapToSignal { itemIds -> Signal<Bool, NoError> in
                         var itemIds = itemIds
                         
@@ -3006,7 +3014,7 @@ public final class ChatListNode: ListViewImpl {
                             } else {
                                 itemIds.append(itemId)
                             }
-                            return engine.peers.reorderPinnedItemIds(location: location, itemIds: itemIds)
+                            return chatListReorderPinnedItemIds(engine: engine, location: location, itemIds: itemIds)
                         } else {
                             return .single(false)
                         }
@@ -3295,6 +3303,23 @@ public final class ChatListNode: ListViewImpl {
     }
     
     private func resetFilter() {
+        // The superfolder and its folders are kept on the device, not among the account's folders.
+        if let chatListFilter = self.chatListFilter, Superfolders.isOwnFilterId(chatListFilter.id) {
+            let filterId = chatListFilter.id
+            self.updatedFilterDisposable.set((Superfolders.settings(engine: self.context.engine)
+            |> map { settings -> ChatListFilter? in
+                return Superfolders.filters(settings: settings).first(where: { $0.id == filterId })
+            }
+            |> deliverOnMainQueue).startStrict(next: { [weak self] updatedFilter in
+                guard let self, let updatedFilter else {
+                    return
+                }
+                if self.chatListFilter != updatedFilter {
+                    self.chatListFilter = updatedFilter
+                }
+            }))
+            return
+        }
         if let chatListFilter = self.chatListFilter, chatListFilter.id != Int32.max {
             self.updatedFilterDisposable.set((self.context.engine.peers.updatedChatListFilters()
             |> map { filters -> ChatListFilter? in

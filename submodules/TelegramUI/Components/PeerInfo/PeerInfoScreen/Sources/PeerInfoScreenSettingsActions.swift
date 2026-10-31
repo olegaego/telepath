@@ -7,6 +7,7 @@ import TelegramCore
 import SettingsUI
 import PeerInfoStoryGridScreen
 import CallListUI
+import ChatListUI
 import PassportUI
 import AccountUtils
 import OverlayStatusController
@@ -96,6 +97,8 @@ extension PeerInfoScreenNode {
         case .chatFolders:
             let controller = self.context.sharedContext.makeFilterSettingsController(context: self.context, modal: false, scrollToTags: false, dismissed: nil)
             push(controller)
+        case .superfolder:
+            push(superfolderController(context: self.context))
         case .notificationsAndSounds:
             if let settings = self.data?.globalSettings {
                 push(notificationsAndSoundsController(context: self.context, exceptionsList: settings.notificationExceptions))

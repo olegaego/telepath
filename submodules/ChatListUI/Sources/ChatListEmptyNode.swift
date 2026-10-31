@@ -22,6 +22,8 @@ final class ChatListEmptyNode: ASDisplayNode {
         case chats(hasArchive: Bool)
         case archive
         case filter(showEdit: Bool)
+        // The empty superfolder, with «Add Chats».
+        case superfolder
         case forum(hasGeneral: Bool)
     }
     private let action: () -> Void
@@ -85,6 +87,8 @@ final class ChatListEmptyNode: ASDisplayNode {
         var gloss = true
         if case .filter = subject {
             gloss = false
+        } else if case .superfolder = subject {
+            gloss = false
         } else if case .chats(true) = subject {
             gloss = false
         }
@@ -100,6 +104,8 @@ final class ChatListEmptyNode: ASDisplayNode {
         if case let .filter(showEdit) = subject {
             animationName = "ChatListFilterEmpty"
             buttonIsHidden = !showEdit
+        } else if case .superfolder = subject {
+            animationName = "ChatListFilterEmpty"
         } else {
             animationName = "ChatListEmpty"
         }
@@ -192,6 +198,10 @@ final class ChatListEmptyNode: ASDisplayNode {
                 text = strings.ChatList_EmptyChatListFilterTitle
                 descriptionText = strings.ChatList_EmptyChatListFilterText
                 buttonText = strings.ChatList_EmptyChatListEditFilter
+            case .superfolder:
+                text = strings.Superfolder_EmptyTitle
+                descriptionText = strings.Superfolder_EmptyText
+                buttonText = strings.Superfolder_AddChats
             case .forum:
                 text = strings.ChatList_EmptyTopicsTitle
                 buttonText = strings.ChatList_EmptyTopicsCreate

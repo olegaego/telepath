@@ -13,6 +13,7 @@ swift_library(
     ],
     deps = [
         "//submodules/TelegramUI/Components/ThreadedBotSessions",
+        "//submodules/TelegramUI/Components/Superfolders",
         "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",
         "//submodules/LottieSettings:LottieSettings",
         "//submodules/AsyncDisplayKit:AsyncDisplayKit",

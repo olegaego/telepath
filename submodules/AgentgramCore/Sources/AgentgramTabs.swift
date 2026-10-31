@@ -18,6 +18,19 @@ public enum AgentgramTabs {
         }
     }
 
+    // the superfolder's tab, once it is made; on unless turned off
+    private static let superfolderKey = "agentgram.tabs.superfolderOff"
+
+    public static var showsSuperfolder: Bool {
+        get {
+            return !UserDefaults.standard.bool(forKey: superfolderKey)
+        }
+        set {
+            UserDefaults.standard.set(!newValue, forKey: superfolderKey)
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
+    }
+
     public static var showsCalls: Bool {
         get {
             return UserDefaults.standard.bool(forKey: callsKey)
