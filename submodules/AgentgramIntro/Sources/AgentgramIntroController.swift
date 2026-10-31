@@ -9,8 +9,10 @@ import AppBundle
 // screen); the pages are about agents, with pictures built from the app's own elements, and the texts live here,
 // in Russian and English, so the server's language pack cannot replace them.
 public final class AgentgramIntroController: UIViewController, UIScrollViewDelegate {
+    // Like Telegram's intro, the pages are in English; «Continue in Russian» under the button switches the app's
+    // language. The Russian texts are kept for when the intro follows the app's language.
     public static var isRussian: Bool {
-        return Locale.preferredLanguages.first?.hasPrefix("ru") ?? false
+        return false
     }
 
     public static var startButtonTitle: String {
