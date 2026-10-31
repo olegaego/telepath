@@ -1032,7 +1032,6 @@ private final class NotificationServiceHandler {
                     }
 
                     Logger.shared.log("NotificationService \(episode)", "Decrypted payload: \(payloadJson)")
-                    NSLog("AgentgramPush decrypted keys=%@ loc_key=%@ custom=%@", payloadJson.keys.sorted().joined(separator: ","), "\(payloadJson["loc_key"] ?? "-")", ((payloadJson["custom"] as? [String: Any])?.keys.sorted().joined(separator: ",")) ?? "-") // TODO: remove
 
                     var peerId: PeerId?
                     var messageId: MessageId.Id?
@@ -2709,15 +2708,6 @@ final class NotificationService: UNNotificationServiceExtension {
         self.initialContent = request.content
         self.contentHandler = contentHandler
 
-        // Agentgram: while pushes are being set up, say why a push is not opened before the handler even starts
-        // (TODO before the App Store: remove)
-        let agentgramReason = agentgramEarlyFailure(request.content.userInfo)
-        NSLog("AgentgramPush start %@", agentgramReason ?? "-") // TODO: remove
-        if let reason = agentgramReason, let mutable = request.content.mutableCopy() as? UNMutableNotificationContent {
-            mutable.title = "Agentgram"
-            mutable.body = "push: " + reason
-            self.initialContent = mutable
-        }
 
         self.impl = nil
 
@@ -2728,7 +2718,6 @@ final class NotificationService: UNNotificationServiceExtension {
                 queue: queue,
                 episode: episode,
                 updateCurrentContent: { value in
-                    NSLog("AgentgramPush content title=%d body=%d locked=%d", value.title?.count ?? -1, value.body?.count ?? -1, value.isLockedMessage == nil ? 0 : 1) // TODO: remove
                     let _ = content.swap(value)
                 },
                 completed: {
@@ -3205,35 +3194,14 @@ extension Customoji {
     }
 }
 
-// Agentgram: while pushes are being set up, a push that could not be opened says where it stopped, instead of an empty one
+// Agentgram: in a debug build a push that could not be opened says where it stopped, instead of an empty one
 private func agentgramDebugContent(_ reason: String) -> NotificationContent {
-    NSLog("AgentgramPush stop %@", reason) // TODO: remove
     var content = NotificationContent(isLockedMessage: nil)
-    // TODO before the App Store: only in debug builds
+    #if DEBUG
     content.title = "Agentgram"
     content.body = "push: " + reason
+    #endif
     return content
-}
-
-private func agentgramEarlyFailure(_ payload: [AnyHashable: Any]) -> String? {
-    guard var p = payload["p"] as? String else {
-        return "no p, keys " + payload.keys.map { "\($0)" }.sorted().joined(separator: ",")
-    }
-    p = p.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-    while p.count % 4 != 0 {
-        p.append("=")
-    }
-    guard let data = Data(base64Encoded: p) else {
-        return "p is not base64, \(p.count) chars"
-    }
-    guard let bundleId = Bundle.main.bundleIdentifier, let dot = bundleId.range(of: ".", options: .backwards) else {
-        return "no bundle id"
-    }
-    let group = "group." + String(bundleId[..<dot.lowerBound])
-    if FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) == nil {
-        return "no app group " + group
-    }
-    return "started, key \(data.prefix(8).map { String(format: "%02x", $0) }.joined()), \(data.count) bytes"
 }
 
 // Agentgram: a push that came by Web Push (through the relay) has, once decrypted, Telegram's Web Push layout:
