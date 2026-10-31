@@ -1,5 +1,4 @@
 import Foundation
-import Postbox
 import TelegramCore
 import SwiftSignalKit
 import ThreadedBotSessions
@@ -80,7 +79,7 @@ public func chatListViewForLocation(chatListLocation: ChatListControllerLocation
                     continue
                 }
                 let messageIndex = index.messageIndex
-                let sessionIndex = ChatListIndex(pinningIndex: index.pinningIndex, messageIndex: MessageIndex(id: MessageId(peerId: messageIndex.id.peerId, namespace: messageIndex.id.namespace, id: messageIndex.id.id - 1 - Int32(j)), timestamp: messageIndex.timestamp))
+                let sessionIndex = EngineChatListIndex(pinningIndex: index.pinningIndex, messageIndex: EngineMessage.Index(id: EngineMessage.Id(peerId: messageIndex.id.peerId, namespace: messageIndex.id.namespace, id: messageIndex.id.id - 1 - Int32(j)), timestamp: messageIndex.timestamp))
                 items.append(EngineChatList.Item(id: .forum(threadId), index: .chatList(sessionIndex), messages: topic.messages, readCounters: topic.readCounters, isMuted: topic.isMuted, draft: topic.draft, threadData: topic.threadData, renderedPeer: item.renderedPeer, presence: topic.presence, hasUnseenMentions: topic.hasUnseenMentions, hasUnseenReactions: topic.hasUnseenReactions, hasUnseenPollVotes: topic.hasUnseenPollVotes, forumTopicData: nil, topForumTopicItems: [], hasFailed: topic.hasFailed, isContact: false, autoremoveTimeout: topic.autoremoveTimeout, storyStats: nil, displayAsTopicList: false, isPremiumRequiredToMessage: false, mediaDraftContentType: topic.mediaDraftContentType))
             }
         }
