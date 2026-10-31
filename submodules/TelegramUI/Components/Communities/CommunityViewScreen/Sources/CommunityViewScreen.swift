@@ -1110,7 +1110,7 @@ private final class CommunityViewContentComponent: Component {
                 actionSheet.setItemGroups([
                     ActionSheetItemGroup(items: [
                         ActionSheetTextItem(title: session.info.title),
-                        ActionSheetButtonItem(title: session.shown ? presentationData.strings.ThreadedBots_RemoveFromChatList : presentationData.strings.ThreadedBots_ShowInChatList, color: .accent, action: { [weak actionSheet] in
+                        ActionSheetButtonItem(title: session.shown ? ThreadedBotSessions.text(.removeFromChatList, languageCode: presentationData.strings.primaryComponent.languageCode) : ThreadedBotSessions.text(.showInChatList, languageCode: presentationData.strings.primaryComponent.languageCode), color: .accent, action: { [weak actionSheet] in
                             actionSheet?.dismissAnimated()
                             component.toggleSessionShown(threadId)
                         })
@@ -1746,7 +1746,7 @@ private final class CommunityViewContentComponent: Component {
                                 style: .glass,
                                 title: AnyComponent(MultilineTextComponent(
                                     text: .plain(NSAttributedString(
-                                        string: presentationData.strings.ThreadedBots_TopicsInside,
+                                        string: ThreadedBotSessions.text(.topicsInside, languageCode: presentationData.strings.primaryComponent.languageCode),
                                         font: Font.regular(presentationData.listsFontSize.baseDisplaySize),
                                         textColor: theme.list.itemPrimaryTextColor
                                     )),
@@ -1803,7 +1803,7 @@ private final class CommunityViewContentComponent: Component {
                     transition: transition,
                     component: AnyComponent(MultilineTextComponent(
                         text: .plain(NSAttributedString(
-                            string: component.botSessions != nil ? (component.botInside ? presentationData.strings.ThreadedBots_TopicsInsideInfo : presentationData.strings.ThreadedBots_ListInfo) : presentationData.strings.Community_View_ShowAsOneChatInfo,
+                            string: component.botSessions != nil ? (component.botInside ? ThreadedBotSessions.text(.topicsInsideInfo, languageCode: presentationData.strings.primaryComponent.languageCode) : ThreadedBotSessions.text(.listInfo, languageCode: presentationData.strings.primaryComponent.languageCode)) : presentationData.strings.Community_View_ShowAsOneChatInfo,
                             font: Font.regular(13.0),
                             textColor: theme.list.freeTextColor
                         )),
@@ -1828,7 +1828,7 @@ private final class CommunityViewContentComponent: Component {
             if let sessions = component.botSessions, let bot = component.bot {
                 let chatListPresentationData = ChatListPresentationData(theme: theme, fontSize: presentationData.listsFontSize, strings: presentationData.strings, dateTimeFormat: presentationData.dateTimeFormat, nameSortOrder: presentationData.nameSortOrder, nameDisplayOrder: presentationData.nameDisplayOrder, disableAnimations: true)
                 let interaction = self.makeInteraction(component: component)
-                let groups: [(CommunityViewSection, String, Bool?)] = component.botInside || component.botCollapsed ? [(.joined, presentationData.strings.ThreadedBots_Topics, nil), (.visible, "", false)] : [(.joined, presentationData.strings.ThreadedBots_InChatList, true), (.visible, presentationData.strings.ThreadedBots_OtherTopics, false)]
+                let groups: [(CommunityViewSection, String, Bool?)] = component.botInside || component.botCollapsed ? [(.joined, ThreadedBotSessions.text(.topics, languageCode: presentationData.strings.primaryComponent.languageCode), nil), (.visible, "", false)] : [(.joined, ThreadedBotSessions.text(.inChatList, languageCode: presentationData.strings.primaryComponent.languageCode), true), (.visible, ThreadedBotSessions.text(.otherTopics, languageCode: presentationData.strings.primaryComponent.languageCode), false)]
                 for (index, (section, title, shown)) in groups.enumerated() {
                     let part = index == 1 && groups[0].2 == nil ? [] : (shown.flatMap { shown in sessions.filter { $0.shown == shown } } ?? sessions)
                     guard !part.isEmpty else {
