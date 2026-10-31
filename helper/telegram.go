@@ -152,6 +152,19 @@ func (b *Bot) Send(chat, thread int64, text string, kb *Keyboard) (Message, erro
 	return m, err
 }
 
+func (b *Bot) SendRich(chat, thread int64, markdown string, kb *Keyboard) (Message, error) {
+	params := map[string]any{"chat_id": chat, "rich_message": map[string]any{"markdown": markdown}}
+	if thread != 0 {
+		params["message_thread_id"] = thread
+	}
+	if kb != nil {
+		params["reply_markup"] = kb
+	}
+	var m Message
+	err := b.call("sendRichMessage", params, &m)
+	return m, err
+}
+
 func (b *Bot) Edit(chat, message int64, text string, kb *Keyboard) error {
 	params := map[string]any{"chat_id": chat, "message_id": message, "text": text}
 	if kb != nil {

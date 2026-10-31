@@ -425,19 +425,28 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn *Cla
 		return
 	}
 	text, options := choices(result.Text)
-	parts := split(firstNonEmpty(text, "Готово."), 4000)
-	for i, part := range parts {
-		var kb *Keyboard
-		if i == len(parts)-1 && len(options) > 0 {
-			kb = &Keyboard{}
-			for j, o := range options {
-				kb.InlineKeyboard = append(kb.InlineKeyboard, []Button{{Text: o, CallbackData: fmt.Sprintf("ch:%d", j)}})
-			}
-			h.mu.Lock()
-			h.pending[key] = &pendingChoice{options: options}
-			h.mu.Unlock()
+	text = firstNonEmpty(text, "Готово.")
+	var kb *Keyboard
+	if len(options) > 0 {
+		kb = &Keyboard{}
+		for j, o := range options {
+			kb.InlineKeyboard = append(kb.InlineKeyboard, []Button{{Text: o, CallbackData: fmt.Sprintf("ch:%d", j)}})
 		}
-		_, _ = h.bot.Send(chat, thread, part, kb)
+		h.mu.Lock()
+		h.pending[key] = &pendingChoice{options: options}
+		h.mu.Unlock()
+	}
+	// the engine writes Markdown: sent as a rich message, as Telegram shows it; if not taken, plain text in parts
+	if _, err := h.bot.SendRich(chat, thread, trim(text, 30000), kb); err == nil {
+		return
+	}
+	parts := split(text, 4000)
+	for i, part := range parts {
+		var last *Keyboard
+		if i == len(parts)-1 {
+			last = kb
+		}
+		_, _ = h.bot.Send(chat, thread, part, last)
 	}
 }
 
