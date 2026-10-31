@@ -45,8 +45,7 @@ func loadConfig() (Config, error) {
 		c.Engine = "claude"
 	}
 	if c.ProjectsDir == "" {
-		home, _ := os.UserHomeDir()
-		c.ProjectsDir = filepath.Join(home, "Projects")
+		c.ProjectsDir = defaultProjectsDir()
 	}
 	return c, err
 }
@@ -116,4 +115,15 @@ func writeFileAtomic(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// Where people usually keep projects; the first that exists, else ~/Projects (made when the first project is)
+func defaultProjectsDir() string {
+	home, _ := os.UserHomeDir()
+	for _, d := range []string{"orca/projects", "Projects", "Developer", "Code", "projects", "dev"} {
+		if st, err := os.Stat(filepath.Join(home, d)); err == nil && st.IsDir() {
+			return filepath.Join(home, d)
+		}
+	}
+	return filepath.Join(home, "Projects")
 }

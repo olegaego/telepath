@@ -4,8 +4,9 @@ package main
 // Claude Code (or Codex) in a project folder. It talks to api.telegram.org with the bot's token and runs the
 // official CLIs; it answers only the owner and sends nothing anywhere else.
 //
-//   agentgram-helper setup    the bot's token and the owner's Telegram id (for now; later Agentgram sends them)
-//   agentgram-helper          run
+//   agentgram-helper          run; the first time it waits for Agentgram on the same network to connect it
+//   agentgram-helper pair     connect again (another bot or owner)
+//   agentgram-helper setup    the same by hand: the bot's token and the owner's Telegram id
 
 import (
 	"bufio"
@@ -30,9 +31,11 @@ func main() {
 		return
 	}
 	cfg, err := loadConfig()
-	if err != nil {
-		fmt.Println("Нет настроек. Запусти: agentgram-helper setup")
-		os.Exit(1)
+	if err != nil || cfg.BotToken == "" || (len(os.Args) > 1 && os.Args[1] == "pair") {
+		// not connected yet: wait for Agentgram on the network
+		if cfg, err = pair(); err != nil {
+			log.Fatal("подключение: ", err)
+		}
 	}
 	h := &Helper{cfg: cfg, bot: NewBot(cfg.BotToken), state: loadState(), topics: map[string]*topicWork{}, pending: map[string]*pendingChoice{}}
 	me, err := h.bot.GetMe()
