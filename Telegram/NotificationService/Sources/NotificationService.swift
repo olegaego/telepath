@@ -1021,7 +1021,7 @@ private final class NotificationServiceHandler {
 
                         return
                     }
-                    guard let payloadJson = try? JSONSerialization.jsonObject(with: decryptedPayload, options: []) as? [String: Any] else {
+                    guard let payloadJson = (try? JSONSerialization.jsonObject(with: decryptedPayload, options: []) as? [String: Any]).flatMap(agentgramWebPushPayload) else {
                         Logger.shared.log("NotificationService \(episode)", "Couldn't process payload as JSON")
 
                         let content = agentgramDebugContent("json") // Agentgram: debug builds say where it stopped
@@ -1032,6 +1032,7 @@ private final class NotificationServiceHandler {
                     }
 
                     Logger.shared.log("NotificationService \(episode)", "Decrypted payload: \(payloadJson)")
+                    NSLog("AgentgramPush decrypted keys=%@ loc_key=%@ custom=%@", payloadJson.keys.sorted().joined(separator: ","), "\(payloadJson["loc_key"] ?? "-")", ((payloadJson["custom"] as? [String: Any])?.keys.sorted().joined(separator: ",")) ?? "-") // TODO: remove
 
                     var peerId: PeerId?
                     var messageId: MessageId.Id?
@@ -3233,4 +3234,36 @@ private func agentgramEarlyFailure(_ payload: [AnyHashable: Any]) -> String? {
         return "no app group " + group
     }
     return "started, key \(data.prefix(8).map { String(format: "%02x", $0) }.joined()), \(data.count) bytes"
+}
+
+// Agentgram: a push that came by Web Push (through the relay) has, once decrypted, Telegram's Web Push layout:
+// title, description or message, badge, and the ids in «custom». The rest of this file reads the APNs layout,
+// so it is turned into that: the ids at the top level and an «aps» alert.
+private func agentgramWebPushPayload(_ payload: [String: Any]) -> [String: Any] {
+    guard payload["aps"] == nil, let custom = payload["custom"] as? [String: Any] else {
+        return payload
+    }
+    var result = payload
+    for (key, value) in custom where result[key] == nil {
+        result[key] = value is String ? value : "\(value)"
+    }
+    var alert: [String: Any] = [:]
+    if let title = payload["title"] as? String, !title.isEmpty {
+        alert["title"] = title
+    }
+    if let body = (payload["description"] as? String) ?? (payload["message"] as? String) {
+        alert["body"] = body
+    }
+    var aps: [String: Any] = [:]
+    if !alert.isEmpty {
+        aps["alert"] = alert
+    }
+    if let badge = payload["badge"] {
+        aps["badge"] = Int("\(badge)") ?? 0
+    }
+    if let threadId = custom["channel_id"] ?? custom["chat_id"] ?? custom["from_id"] {
+        aps["thread-id"] = "\(threadId)"
+    }
+    result["aps"] = aps
+    return result
 }
