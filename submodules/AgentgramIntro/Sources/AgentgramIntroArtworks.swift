@@ -582,7 +582,7 @@ final class AgentgramIntroComputerArtwork: AgentgramIntroArtwork {
         super.init(palette: palette)
         self.setupContent()
         let ru = AgentgramIntroController.isRussian
-        let items: [(String, String)] = [("laptopcomputer", ru ? "Компьютер" : "Computer"), ("server.rack", ru ? "Свой сервер" : "Own server")]
+        let items: [(String, String)] = [("laptopcomputer", ru ? "Свой компьютер" : "Your computer"), ("server.rack", ru ? "Свой сервер" : "Your server")]
         for (i, item) in items.enumerated() {
             let tile = UIView(frame: CGRect(x: 0.0, y: 0.0, width: 200.0, height: 200.0))
             let square = UIView(frame: CGRect(x: 47.0, y: 28.0, width: 106.0, height: 106.0))
