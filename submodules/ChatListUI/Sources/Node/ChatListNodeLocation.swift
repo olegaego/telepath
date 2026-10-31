@@ -201,7 +201,8 @@ public func chatListFilterPredicate(filter: ChatListFilterData, accountPeerId: E
 // superfolder shows only the superfolder's chats.
 public func chatListViewForLocationPlain(chatListLocation: ChatListControllerLocation, location: ChatListNodeLocation, account: Account, shouldLoadCanMessagePeer: Bool) -> Signal<ChatListNodeViewUpdate, NoError> {
     let view = chatListViewForLocationUnfiltered(chatListLocation: chatListLocation, location: location, account: account, shouldLoadCanMessagePeer: shouldLoadCanMessagePeer)
-    guard case .chatList(.root) = chatListLocation, location.filter?.id != Superfolders.filterId else {
+    // Agentgram: the picker of where to forward (it loads «can message») lists every chat, the superfolder's too
+    guard case .chatList(.root) = chatListLocation, location.filter?.id != Superfolders.filterId, !shouldLoadCanMessagePeer else {
         return view
     }
     let isSuperfolderFolder = Superfolders.isFolderId(location.filter?.id)
