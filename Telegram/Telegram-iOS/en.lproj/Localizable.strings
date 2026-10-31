@@ -16463,6 +16463,15 @@ Error: %8$@";
 "Community.View.PendingRequestHeader" = "PENDING REQUEST";
 "Community.View.ShowAsOneChat" = "Show as One Chat";
 "Community.View.ShowAsOneChatInfo" = "Group all community chats into one item in the chat list.";
+
+"ThreadedBots.TopicsInside" = "Topics Inside the Bot";
+"ThreadedBots.TopicsInsideInfo" = "One row for the bot, its topics open inside the chat.";
+"ThreadedBots.ListInfo" = "Topics are listed under the bot. Show as One Chat keeps a single row, like a community.";
+"ThreadedBots.InChatList" = "IN CHAT LIST";
+"ThreadedBots.OtherTopics" = "OTHER TOPICS";
+"ThreadedBots.Topics" = "TOPICS";
+"ThreadedBots.RemoveFromChatList" = "Remove from Chat List";
+"ThreadedBots.ShowInChatList" = "Show in Chat List";
 "Community.View.AddChatButton" = "Add a Chat to Community";
 "Community.View.PendingRequestApprovedToast" = "You've added the group to the community.";
 "Community.View.PendingRequestDeclinedToast" = "You declined adding the group to the community.";

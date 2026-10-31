@@ -1,6 +1,7 @@
 import Foundation
 import UIKit
 import TelegramCore
+import ThreadedBotSessions
 import TelegramPresentationData
 import MergeLists
 import AccountContext
@@ -123,6 +124,8 @@ enum ChatListNodeEntry: Comparable, Identifiable {
         var storyState: ChatListNodeState.StoryState?
         var requiresPremiumForMessaging: Bool
         var displayAsTopicList: Bool
+        // a Threaded Mode bot shown as one row draws a stack: the row is redrawn when that changes
+        var threadedBotCollapsed: Bool = false
         
         init(
             index: EngineChatList.Item.Index,
@@ -186,6 +189,9 @@ enum ChatListNodeEntry: Comparable, Identifiable {
         
         static func ==(lhs: PeerEntryData, rhs: PeerEntryData) -> Bool {
             if lhs.index != rhs.index {
+                return false
+            }
+            if lhs.threadedBotCollapsed != rhs.threadedBotCollapsed {
                 return false
             }
             if lhs.presentationData !== rhs.presentationData {
@@ -459,6 +465,10 @@ enum ChatListNodeEntry: Comparable, Identifiable {
         case let .PeerEntry(peerEntry):
             switch peerEntry.index {
             case let .chatList(index):
+                // a bot's session shares the bot's place in the list, but is a row of its own
+                if let threadInfo = peerEntry.threadInfo {
+                    return .ThreadId(threadInfo.id)
+                }
                 return .PeerId(index.messageIndex.id.peerId.toInt64())
             case let .forum(_, _, threadId, _, _):
                 return .ThreadId(threadId)
@@ -671,7 +681,12 @@ func chatListNodeEntriesForView(view: EngineChatList, state: ChatListNodeState, 
         var peerId: EnginePeer.Id?
         var threadId: Int64?
         var activityItemId: ChatListNodePeerInputActivities.ItemId?
-        if case let .chatList(index) = entry.index {
+        if case let .chatList(index) = entry.index, case let .forum(threadIdValue) = entry.id {
+            // a session of a Threaded Mode bot, listed under the bot
+            peerId = index.messageIndex.id.peerId
+            activityItemId = ChatListNodePeerInputActivities.ItemId(peerId: index.messageIndex.id.peerId, threadId: threadIdValue)
+            threadId = threadIdValue
+        } else if case let .chatList(index) = entry.index {
             peerId = index.messageIndex.id.peerId
             activityItemId = ChatListNodePeerInputActivities.ItemId(peerId: index.messageIndex.id.peerId, threadId: nil)
         } else if case let .forum(_, _, threadIdValue, _, _) = entry.index, case let .forum(peerIdValue) = chatListLocation {
@@ -730,7 +745,7 @@ func chatListNodeEntriesForView(view: EngineChatList, state: ChatListNodeState, 
             }
         }
 
-        let entry: ChatListNodeEntry = .PeerEntry(ChatListNodeEntry.PeerEntryData(
+        var peerEntryData = ChatListNodeEntry.PeerEntryData(
             index: offsetPinnedIndex(entry.index, offset: pinnedIndexOffset),
             presentationData: state.presentationData,
             messages: updatedMessages,
@@ -763,7 +778,11 @@ func chatListNodeEntriesForView(view: EngineChatList, state: ChatListNodeState, 
             },
             requiresPremiumForMessaging: entry.isPremiumRequiredToMessage,
             displayAsTopicList: entry.displayAsTopicList
-        ))
+        )
+        if threadInfo == nil, ThreadedBotSessions.isThreadedBot(entry.renderedPeer.peer) {
+            peerEntryData.threadedBotCollapsed = ThreadedBotSessions.currentSettings(accountPeerId: accountPeerId).bot(entry.renderedPeer.peerId).showAsOneChat
+        }
+        let entry: ChatListNodeEntry = .PeerEntry(peerEntryData)
         
         if let threadInfo, threadInfo.isHidden {
             hiddenGeneralThread = entry

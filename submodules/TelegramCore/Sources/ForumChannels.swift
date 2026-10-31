@@ -1546,3 +1546,22 @@ public final class ForumChannelTopics {
         })
     }
 }
+
+// Re-reads a peer's topics from the server. The read state of a bot's topics is not pushed to the other
+// devices, so a topic read on one device stays unread on another until the topics are fetched again.
+func _internal_refreshForumTopics(account: Account, peerId: PeerId) -> Signal<Never, NoError> {
+    return _internal_requestMessageHistoryThreads(accountPeerId: account.peerId, postbox: account.postbox, network: account.network, peerId: peerId, query: nil, offsetIndex: nil, limit: 100)
+    |> map(Optional.init)
+    |> `catch` { _ -> Signal<LoadMessageHistoryThreadsResult?, NoError> in
+        return .single(nil)
+    }
+    |> mapToSignal { result -> Signal<Never, NoError> in
+        guard let result else {
+            return .complete()
+        }
+        return account.postbox.transaction { transaction -> Void in
+            applyLoadMessageHistoryThreadsResults(accountPeerId: account.peerId, transaction: transaction, results: [result])
+        }
+        |> ignoreValues
+    }
+}

@@ -1357,6 +1357,10 @@ public extension TelegramEngine {
             return _internal_fetchForumChannelTopic(account: self.account, peerId: id, threadId: threadId)
         }
         
+        public func refreshForumTopics(peerId: EnginePeer.Id) -> Signal<Never, NoError> {
+            return _internal_refreshForumTopics(account: self.account, peerId: peerId)
+        }
+
         public func editForumChannelTopic(id: EnginePeer.Id, threadId: Int64, title: String, iconFileId: Int64?) -> Signal<Never, EditForumChannelTopicError> {
             return _internal_editForumChannelTopic(account: self.account, peerId: id, threadId: threadId, title: title, iconFileId: iconFileId)
         }

@@ -5,6 +5,7 @@ import SwiftSignalKit
 import AsyncDisplayKit
 import Display
 import TelegramCore
+import ThreadedBotSessions
 import TelegramPresentationData
 import TelegramUIPreferences
 import TelegramBaseController
@@ -1435,6 +1436,20 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
                         self.chatListDisplayNode.mainContainerNode.currentItemNode.clearHighlightAnimated(true)
                         return
                     }
+                    // a bot shown as one row opens the list of its sessions, like a community
+                    if threadId == nil, case .chatList = self.location, ThreadedBotSessions.isThreadedBot(peer), case let botSettings = ThreadedBotSessions.currentSettings(accountPeerId: self.context.account.peerId).bot(peer.id), botSettings.showAsOneChat, !botSettings.topicsInside {
+                        let controller = self.context.sharedContext.makeChatListController(context: self.context, location: .forum(peerId: peer.id), controlsHistoryPreload: false, hideNetworkActivityStatus: false, previewing: false, enableDebugActions: false)
+                        self.push(controller)
+                        self.chatListDisplayNode.mainContainerNode.currentItemNode.clearHighlightAnimated(true)
+                        return
+                    }
+                    
+                    // a session of a Threaded Mode bot opens as its topic
+                    if case .user = peer, let threadId, ThreadedBotSessions.isThreadedBot(peer) {
+                        let _ = self.context.sharedContext.navigateToForumThread(context: self.context, peerId: peer.id, threadId: threadId, messageId: nil, navigationController: navigationController, activateInput: activateInput ? .text : nil, scrollToEndIfExists: false, keepStack: .always, animated: true).startStandalone()
+                        self.chatListDisplayNode.clearHighlightAnimated(true)
+                        return
+                    }
                     
                     var scrollToEndIfExists = false
                     if let layout = self.validLayout, case .regular = layout.metrics.widthClass {
@@ -1560,6 +1575,7 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
             guard let self else {
                 return
             }
+            // the arrow on a Threaded Mode bot opens the same screen with its sessions
             self.push(self.context.sharedContext.makeCommunityViewScreen(context: self.context, communityId: communityId, mode: .sheet))
         }
 
@@ -1657,6 +1673,26 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
                 payload: nil,
                 verifyAgeCompletion: nil
             )
+        }
+        
+        // «New Chat» on a Threaded Mode bot's row: the native new-topic window, then the new topic opens
+        self.chatListDisplayNode.mainContainerNode.startBotSession = { [weak self] peerId in
+            guard let self, let navigationController = self.navigationController as? NavigationController else {
+                return
+            }
+            let context = self.context
+            let controller = ForumCreateTopicScreen(context: context, peerId: peerId, mode: .create)
+            controller.navigationPresentation = .modal
+            controller.completion = { [weak controller] title, fileId, iconColor, _ in
+                controller?.isInProgress = true
+                let _ = (context.engine.peers.createForumChannelTopic(id: peerId, title: title, iconColor: iconColor, iconFileId: fileId)
+                |> deliverOnMainQueue).startStandalone(next: { topicId in
+                    let _ = context.sharedContext.navigateToForumThread(context: context, peerId: peerId, threadId: topicId, messageId: nil, navigationController: navigationController, activateInput: .text, scrollToEndIfExists: false, keepStack: .never, animated: true).startStandalone()
+                }, error: { _ in
+                    controller?.isInProgress = false
+                })
+            }
+            self.push(controller)
         }
         
         self.chatListDisplayNode.mainContainerNode.openAccountFreezeInfo = { [weak self] in
@@ -1927,6 +1963,17 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
                 
                 switch item.index {
                 case .chatList:
+                    // a session of a Threaded Mode bot previews its own topic, as topics do in a forum
+                    if let threadInfo, ThreadedBotSessions.isThreadedBot(peer.peer) {
+                        let chatController = strongSelf.context.sharedContext.makeChatController(context: strongSelf.context, chatLocation: .replyThread(message: ChatReplyThreadMessage(
+                            peerId: peer.peerId, threadId: threadInfo.id, channelMessageId: nil, isChannelPost: false, isForumPost: true, isMonoforumPost: false, maxMessage: nil, maxReadIncomingMessageId: nil, maxReadOutgoingMessageId: nil, unreadCount: 0, initialFilledHoles: IndexSet(), initialAnchor: .automatic, isNotAvailable: false
+                        )), subject: nil, botStart: nil, mode: .standard(.previewing), params: nil)
+                        chatController.canReadHistory.set(false)
+                        let source: ContextContentSource = .controller(ContextControllerContentSourceImpl(controller: chatController, sourceNode: node, navigationController: strongSelf.navigationController as? NavigationController))
+                        let contextController = makeContextController(context: strongSelf.context, presentationData: strongSelf.presentationData, source: source, items: chatForumTopicMenuItems(context: strongSelf.context, peerId: peer.peerId, threadId: threadInfo.id, isPinned: false, isClosed: threadInfo.isClosed, chatListController: strongSelf, joined: joined, canSelect: false) |> map { ContextController.Items(content: .list($0)) }, gesture: gesture)
+                        strongSelf.presentInGlobalOverlay(contextController)
+                        return
+                    }
                     if case let .channel(channel) = peer.peer, (channel.isForum || (channel.isMonoForum && threadId != nil)) {
                         if let threadId = threadId {
                             let source: ContextContentSource

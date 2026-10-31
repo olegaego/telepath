@@ -4,6 +4,7 @@ import AsyncDisplayKit
 import Display
 import SwiftSignalKit
 import TelegramCore
+import ThreadedBotSessions
 import TelegramPresentationData
 import ItemListUI
 import PresentationDataUtils
@@ -634,8 +635,16 @@ public class ChatListItem: ListViewItem {
                 if case let .user(user) = peer, let botInfo = user.botInfo, botInfo.flags.contains(.hasForum), let forumTopicData = peerData.forumTopicData {
                     threadId = forumTopicData.id
                 }
+                // in a chat list a Threaded Mode bot's own row opens the bot, its sessions (listed below it) open as topics
+                if case .chatList = self.chatListLocation, ThreadedBotSessions.isThreadedBot(peer) {
+                    threadId = peerData.threadInfo?.id
+                }
                 self.interaction.messageSelected(selectedPeer, threadId, message, peerData.promoInfo)
             } else if let peer = peerData.peer.peer {
+                if case .chatList = self.chatListLocation, let threadInfo = peerData.threadInfo, ThreadedBotSessions.isThreadedBot(peer) {
+                    self.interaction.peerSelected(peer, nil, threadInfo.id, peerData.promoInfo, false)
+                    return
+                }
                 self.interaction.peerSelected(peer, nil, nil, peerData.promoInfo, false)
             } else if let peer = peerData.peer.peers[peerData.peer.peerId] {
                 self.interaction.peerSelected(peer, nil, nil, peerData.promoInfo, false)
@@ -1899,7 +1908,11 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
             lineWidth: 2.33,
             inactiveLineWidth: 1.33
         ), transition: .immediate)
-        self.avatarNode.isUserInteractionEnabled = !item.useCommunityViewLayout && ((storyState != nil && !peerIsCommunity) || peerLinkedCommunityId != nil)
+        var threadedBotRow = false
+        if case let .peer(peerData) = item.content, peerData.threadInfo == nil, case .chatList = item.chatListLocation, ThreadedBotSessions.isThreadedBot(peerData.peer.peer) {
+            threadedBotRow = true
+        }
+        self.avatarNode.isUserInteractionEnabled = !item.useCommunityViewLayout && ((storyState != nil && !peerIsCommunity) || peerLinkedCommunityId != nil || threadedBotRow)
         
         if let stats = storyState?.stats, stats.hasLiveItems {
             if self.avatarLiveBadge == nil {
@@ -2321,6 +2334,8 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
             var itemTags: [ChatListItemContent.Tag] = []
             var isCommunity = false
             var displayCommunityAvatarBadge = false
+            // a Threaded Mode bot gets the community arrow (its sessions sheet), and a stack when shown as one row
+            var threadedBotCollapsed = false
             
             var groupHiddenByDefault = false
             
@@ -2349,6 +2364,9 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                         isCommunity = true
                     } else if !item.hideCommunityAvatarBadge, peerValue.peer?.containerPeerId != nil {
                         displayCommunityAvatarBadge = true
+                    } else if peerData.threadInfo == nil, case .chatList = item.chatListLocation, ThreadedBotSessions.isThreadedBot(peerValue.peer) {
+                        displayCommunityAvatarBadge = true
+                        threadedBotCollapsed = ThreadedBotSessions.currentSettings(accountPeerId: item.context.account.peerId).bot(peerValue.peerId).showAsOneChat
                     }
                     let threadInfoValue = peerData.threadInfo
                     let combinedReadStateValue = peerData.combinedReadState
@@ -2464,6 +2482,11 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                 }
             }
             
+            // a session of a Threaded Mode bot, under the bot's row: indented, the topic icon in the avatar's place
+            var isBotSession = false
+            if case .chatList = item.chatListLocation, threadInfo != nil, case let .peer(peerData) = item.content, ThreadedBotSessions.isThreadedBot(peerData.peer.peer) {
+                isBotSession = true
+            }
             let useChatListLayout: Bool
             if case .chatList = item.chatListLocation {
                 useChatListLayout = true
@@ -2581,7 +2604,8 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
             
             let currentAvatarBadgeCleanBackgroundImage: UIImage? = PresentationResourcesChatList.badgeBackgroundBorder(item.presentationData.theme, diameter: avatarBadgeDiameter + 4.0)
             
-            let leftInset: CGFloat = params.leftInset + avatarLeftInset
+            let sessionIndent: CGFloat = isBotSession ? 20.0 : 0.0
+            let leftInset: CGFloat = params.leftInset + avatarLeftInset + sessionIndent
             
             enum ContentData {
                 case chat(itemPeer: EngineRenderedPeer, threadInfo: ChatListItemContent.ThreadInfo?, peer: EnginePeer?, hideAuthor: Bool, messageText: String, messageEntities: [MessageTextEntity], spoilers: [NSRange]?, customEmojiRanges: [(NSRange, ChatTextInputTextCustomEmojiAttribute)]?, richTextPreview: NSAttributedString?)
@@ -3679,8 +3703,14 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
             let (mentionBadgeLayout, mentionBadgeApply) = mentionBadgeLayout(CGSize(width: rawContentWidth, height: CGFloat.greatestFiniteMagnitude), badgeDiameter, badgeFont, currentMentionBadgeImage, mentionBadgeContent)
             
             var actionButtonTitleNodeLayoutAndApply: (TextNodeLayout, () -> TextNode)?
-            if !item.editing, case .none = badgeContent, case .none = mentionBadgeContent, case let .chat(itemPeer) = contentPeer, case let .user(user) = itemPeer.chatMainPeer, let botInfo = user.botInfo, botInfo.flags.contains(.hasWebApp) {
-                actionButtonTitleNodeLayoutAndApply = makeActionButtonTitleNodeLayout(TextNodeLayoutArguments(attributedString: NSAttributedString(string: item.presentationData.strings.ChatList_InlineButtonOpenApp, font: Font.semibold(floor(item.presentationData.fontSize.itemListBaseFontSize * 15.0 / 17.0)), textColor: theme.unreadBadgeActiveTextColor), backgroundColor: nil, maximumNumberOfLines: 1, truncationType: .end, constrainedSize: CGSize(width: rawContentWidth, height: CGFloat.greatestFiniteMagnitude), alignment: .natural, cutout: nil, insets: UIEdgeInsets()))
+            // a Threaded Mode bot that lets users open topics gets «New chat» instead of «Open»
+            var canStartSession = false
+            if !isBotSession, case .chatList = item.chatListLocation, case let .chat(itemPeer) = contentPeer, ThreadedBotSessions.canStartSession(itemPeer.chatMainPeer) {
+                canStartSession = true
+            }
+            let newSessionTitle = item.presentationData.strings.Chat_InlineTopicMenu_NewForumThreadTab.uppercased()
+            if !item.editing, !isBotSession, case .none = badgeContent, case .none = mentionBadgeContent, case let .chat(itemPeer) = contentPeer, case let .user(user) = itemPeer.chatMainPeer, canStartSession || user.botInfo?.flags.contains(.hasWebApp) == true {
+                actionButtonTitleNodeLayoutAndApply = makeActionButtonTitleNodeLayout(TextNodeLayoutArguments(attributedString: NSAttributedString(string: canStartSession ? newSessionTitle : item.presentationData.strings.ChatList_InlineButtonOpenApp, font: Font.semibold(floor(item.presentationData.fontSize.itemListBaseFontSize * 15.0 / 17.0)), textColor: theme.unreadBadgeActiveTextColor), backgroundColor: nil, maximumNumberOfLines: 1, truncationType: .end, constrainedSize: CGSize(width: rawContentWidth, height: CGFloat.greatestFiniteMagnitude), alignment: .natural, cutout: nil, insets: UIEdgeInsets()))
             }
             
             var badgeSize: CGFloat = 0.0
@@ -3930,7 +3960,11 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                     if let enabledContextActions = item.enabledContextActions {
                         switch enabledContextActions {
                         case .auto:
-                            if case .forum = item.chatListLocation {
+                            if isBotSession {
+                                // a session shares the bot's chat: the bot's actions (archive, delete…) would hit the whole chat
+                                peerRevealOptions = []
+                                peerLeftRevealOptions = []
+                            } else if case .forum = item.chatListLocation {
                                 if case let .chat(itemPeer) = contentPeer, case let .channel(channel) = itemPeer.peer {
                                     var canOpenClose = false
                                     if channel.flags.contains(.isCreator) {
@@ -4218,7 +4252,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                     
                     transition.updateFrame(node: strongSelf.avatarContainerNode, frame: avatarFrame)
 
-                    if useChatListLayout && isCommunity && avatarContentImageSpec == nil, let shadowImage = UIImage(bundleImageName: "Components/CommunityShadow") {
+                    if useChatListLayout && (isCommunity || threadedBotCollapsed) && avatarContentImageSpec == nil, let shadowImage = UIImage(bundleImageName: "Components/CommunityShadow") {
                         strongSelf.communityAvatarShadowNode.isHidden = false
                         strongSelf.communityAvatarShadowNode.image = generateTintedImage(image: shadowImage, color: theme.titleColor.withAlphaComponent(0.9))
 
@@ -4376,6 +4410,11 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                             strongSelf.avatarIconView = avatarIconView
                             strongSelf.mainContentContainerNode.view.addSubview(avatarIconView)
                         }
+                        // a bot's session: the icon stands where the avatar is, outside the clipped text area
+                        let iconParent: UIView = isBotSession ? strongSelf.contextContainer.view : strongSelf.mainContentContainerNode.view
+                        if avatarIconView.superview !== iconParent {
+                            iconParent.addSubview(avatarIconView)
+                        }
                         
                         let avatarIconContent: EmojiStatusComponent.Content
                         if threadInfo.id == 1 {
@@ -4400,12 +4439,14 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                             transition: .immediate,
                             component: AnyComponent(avatarIconComponent),
                             environment: {},
-                            containerSize: item.interaction.isInlineMode ? CGSize(width: 18.0, height: 18.0) : CGSize(width: 32.0, height: 32.0)
+                            containerSize: item.interaction.isInlineMode ? CGSize(width: 18.0, height: 18.0) : (isBotSession ? CGSize(width: 48.0, height: 48.0) : CGSize(width: 32.0, height: 32.0))
                         )
                         
                         let avatarIconFrame: CGRect
                         if item.interaction.isInlineMode {
                             avatarIconFrame = CGRect(origin: CGPoint(x: contentRect.origin.x, y: contentRect.origin.y + 1.0), size: iconSize)
+                        } else if isBotSession {
+                            avatarIconFrame = CGRect(origin: CGPoint(x: editingOffset + params.leftInset + sessionIndent + avatarLeftEdgeInset + floor((avatarDiameter - iconSize.width) / 2.0) + revealOffset, y: floor((itemHeight - iconSize.height) / 2.0)), size: iconSize)
                         } else {
                             avatarIconFrame = CGRect(origin: CGPoint(x: editingOffset + params.leftInset + floor((leftInset - params.leftInset - iconSize.width) / 2.0) + revealOffset, y: contentRect.origin.y + 2.0), size: iconSize)
                         }
@@ -4415,7 +4456,7 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
                         avatarIconView.removeFromSuperview()
                     }
                     
-                    if !useChatListLayout {
+                    if !useChatListLayout || isBotSession {
                         strongSelf.avatarContainerNode.isHidden = true
                     } else {
                         strongSelf.avatarContainerNode.isHidden = false
@@ -5549,6 +5590,10 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
         guard case let .peer(peerData) = item.content else {
             return
         }
+        if case .chatList = item.chatListLocation, ThreadedBotSessions.canStartSession(peerData.peer.peer), let peerId = peerData.peer.peer?.id {
+            item.interaction.startBotSession(peerId)
+            return
+        }
         if case let .user(user) = peerData.peer.peer, let botInfo = user.botInfo, botInfo.flags.contains(.hasWebApp) {
             item.interaction.openWebApp(user)
         }
@@ -5894,7 +5939,10 @@ public class ChatListItemNode: ItemListRevealOptionsItemNode {
             case .loading:
                 break
             case let .peer(peerData):
-                if let peer = peerData.peer.peer, let linkedCommunityId = peer.containerPeerId {
+                if peerData.threadInfo == nil, ThreadedBotSessions.isThreadedBot(peerData.peer.peer) {
+                    // the arrow of a bot opens its sessions sheet
+                    item.interaction.openCommunity(peerData.peer.peerId)
+                } else if let peer = peerData.peer.peer, let linkedCommunityId = peer.containerPeerId {
                     item.interaction.openCommunity(linkedCommunityId)
                 } else {
                     item.interaction.openStories(.peer(peerData.peer.peerId), self)
