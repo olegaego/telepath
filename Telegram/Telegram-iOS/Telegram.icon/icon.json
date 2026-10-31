@@ -1,66 +1,22 @@
 {
   "fill": {
-    "linear-gradient": [
-      "srgb:0.24706,0.71373,0.93333,1.00000",
-      "srgb:0.10980,0.57647,0.82353,1.00000"
-    ]
+    "solid": "srgb:0.56078,0.82745,1.00000,1.00000"
   },
   "groups": [
     {
       "blend-mode": "normal",
-      "blur-material": 1,
       "layers": [
         {
-          "blend-mode-specializations": [
-            {
-              "value": "normal"
-            },
-            {
-              "appearance": "dark",
-              "value": "normal"
-            }
-          ],
-          "fill-specializations": [
-            {
-              "appearance": "dark",
-              "value": "automatic"
-            }
-          ],
-          "glass": true,
-          "image-name": "Bubble.svg",
-          "name": "Bubble",
-          "position-specializations": [
-            {
-              "idiom": "watchOS",
-              "value": {
-                "scale": 1.35,
-                "translation-in-points": [
-                  0,
-                  0
-                ]
-              }
-            }
-          ]
-        }
-      ],
-      "lighting": "combined",
-      "position-specializations": [
-        {
-          "idiom": "watchOS",
-          "value": {
-            "scale": 1,
-            "translation-in-points": [
-              0,
-              0
-            ]
-          }
+          "glass": false,
+          "image-name": "Agentgram.png",
+          "name": "Agentgram"
         }
       ],
       "shadow": {
-        "kind": "layer-color",
-        "opacity": 1
+        "kind": "none",
+        "opacity": 0
       },
-      "specular": true,
+      "specular": false,
       "translucency": {
         "enabled": false,
         "value": 1
