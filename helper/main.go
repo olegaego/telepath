@@ -30,20 +30,52 @@ func main() {
 		setup()
 		return
 	}
-	cfg, err := loadConfig()
-	if err != nil || cfg.BotToken == "" || (len(os.Args) > 1 && os.Args[1] == "pair") {
-		// not connected yet: wait for Agentgram on the network
-		if cfg, err = pair(); err != nil {
-			log.Fatal("подключение: ", err)
-		}
+	cfg, _ := loadConfig()
+	if len(os.Args) > 1 && os.Args[1] == "pair" {
+		cfg.BotToken, cfg.OwnerID, cfg.BotName, cfg.PhoneSecret = "", 0, "", ""
+		_ = saveConfig(cfg)
 	}
-	h := &Helper{cfg: cfg, bot: NewBot(cfg.BotToken), state: loadState(), topics: map[string]*topicWork{}, pending: map[string]*pendingChoice{}}
-	me, err := h.bot.GetMe()
+	network, err := startNetwork(cfg)
 	if err != nil {
-		log.Fatal("бот не отвечает: ", err)
+		log.Fatal("сеть: ", err)
 	}
-	log.Printf("работаю как @%s, хозяин %d, движок %s", me.Username, cfg.OwnerID, cfg.Engine)
-	h.loop()
+	for {
+		if cfg.BotToken == "" {
+			fmt.Println()
+			fmt.Println("Жду Agentgram в этой сети.")
+			fmt.Println("В Agentgram: Настройки → Agentgram → Компьютеры → «" + computerName() + "» → Подключить.")
+			fmt.Println("Код на телефоне должен быть таким:  " + network.Code())
+			fmt.Println()
+			cfg = <-network.Paired
+			log.Println("подключён")
+		}
+		h := &Helper{cfg: cfg, bot: NewBot(cfg.BotToken), state: loadState(), topics: map[string]*topicWork{}, pending: map[string]*pendingChoice{}}
+		network.Status = h.status
+		me, err := h.bot.GetMe()
+		if err != nil {
+			log.Println("бот не отвечает: ", err)
+			time.Sleep(10 * time.Second)
+			continue
+		}
+		log.Printf("работаю как @%s, хозяин %d, движок %s", me.Username, cfg.OwnerID, cfg.Engine)
+		stop := make(chan struct{})
+		go h.loop(stop)
+		<-network.Unpaired
+		close(stop)
+		log.Println("отключён в Agentgram")
+		cfg, _ = loadConfig()
+	}
+}
+
+// For «Computers» in Agentgram: how many topics and how many of them work right now
+func (h *Helper) status() map[string]any {
+	h.mu.Lock()
+	running := len(h.topics)
+	h.mu.Unlock()
+	h.state.mu.Lock()
+	topics := len(h.state.Topics)
+	h.state.mu.Unlock()
+	return map[string]any{"topics": topics, "running": running}
 }
 
 func setup() {
@@ -95,9 +127,14 @@ func topicKey(chat, thread int64) string {
 	return fmt.Sprintf("%d:%d", chat, thread)
 }
 
-func (h *Helper) loop() {
+func (h *Helper) loop(stop chan struct{}) {
 	offset := h.state.Offset
 	for {
+		select {
+		case <-stop:
+			return
+		default:
+		}
 		ups, err := h.bot.GetUpdates(offset)
 		if err != nil {
 			var apiErr *APIError

@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/ecdh"
@@ -57,6 +56,7 @@ type pairPayload struct {
 	BotToken string `json:"bot_token"`
 	OwnerID  int64  `json:"owner_id"`
 	Engine   string `json:"engine"`
+	Secret   string `json:"secret"` // the phone's own secret, to ask this computer later (info, disconnect)
 }
 
 // ECIES on P-256, as the app does it: the phone's ephemeral key (65) + AES-256-GCM (nonce 12, ciphertext, tag 16),
@@ -97,83 +97,177 @@ func computerName() string {
 	return name
 }
 
-// Waits on the network until Agentgram connects, then saves the settings and returns them
-func pair() (Config, error) {
+// The helper on the local network, all the time it runs: announced (Bonjour) with its key, whether it is connected
+// and to which bot; /pair while it is not connected, and for the phone that connected it /info and /unpair. Those two
+// carry the secret that phone sent when connecting, sealed with the computer's key, so nobody else on the network can ask.
+type Network struct {
+	key      *ecdh.PrivateKey
+	port     int
+	server   *http.Server
+	announce *zeroconf.Server
+	Paired   chan Config
+	Unpaired chan struct{}
+	Status   func() map[string]any // what /info tells about the work: topics, running turns
+}
+
+func startNetwork(cfg Config) (*Network, error) {
 	key, err := deviceKey()
 	if err != nil {
-		return Config{}, err
+		return nil, err
 	}
-	pub := key.PublicKey().Bytes()
-	code := pairingCode(pub)
 	listener, err := net.Listen("tcp", ":0")
 	if err != nil {
-		return Config{}, err
+		return nil, err
 	}
-	port := listener.Addr().(*net.TCPAddr).Port
-	done := make(chan Config, 1)
+	n := &Network{key: key, port: listener.Addr().(*net.TCPAddr).Port, Paired: make(chan Config, 1), Unpaired: make(chan struct{}, 1)}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/pair", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "", http.StatusMethodNotAllowed)
-			return
-		}
-		body, _ := io.ReadAll(io.LimitReader(r.Body, 8192))
-		sealed, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(string(body)))
-		if err != nil {
-			http.Error(w, "bad", http.StatusBadRequest)
-			return
-		}
-		plain, err := openPairing(key, sealed)
-		if err != nil {
-			http.Error(w, "bad", http.StatusBadRequest)
-			return
-		}
-		var p pairPayload
-		if json.Unmarshal(plain, &p) != nil || p.BotToken == "" || p.OwnerID == 0 {
-			http.Error(w, "bad", http.StatusBadRequest)
-			return
-		}
-		me, err := NewBot(p.BotToken).GetMe()
-		if err != nil {
-			http.Error(w, "the bot does not answer", http.StatusBadRequest)
-			return
-		}
-		cfg, _ := loadConfig()
-		cfg.BotToken, cfg.OwnerID = p.BotToken, p.OwnerID
-		if p.Engine != "" {
-			cfg.Engine = p.Engine
-		}
-		if err := saveConfig(cfg); err != nil {
-			http.Error(w, "save", http.StatusInternalServerError)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "bot": me.Username, "computer": computerName()})
-		select {
-		case done <- cfg:
-		default:
-		}
-	})
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
-	go func() { _ = server.Serve(listener) }()
-	// announced with the plain host name and the computer's own addresses (Register would add «.local» twice on a Mac)
-	announce, err := zeroconf.RegisterProxy(computerName(), pairService, "local.", port, computerName(), localAddresses(), []string{"v=1", "pk=" + base64.RawURLEncoding.EncodeToString(pub)}, nil)
-	if err != nil {
-		_ = server.Close()
-		return Config{}, err
+	mux.HandleFunc("/pair", n.handlePair)
+	mux.HandleFunc("/info", n.handleInfo)
+	mux.HandleFunc("/unpair", n.handleUnpair)
+	n.server = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	go func() { _ = n.server.Serve(listener) }()
+	n.reannounce(cfg)
+	return n, nil
+}
+
+func (n *Network) Code() string {
+	code := pairingCode(n.key.PublicKey().Bytes())
+	return code[:3] + " " + code[3:]
+}
+
+// announced with the plain host name and the computer's own addresses (Register would add «.local» twice on a Mac)
+func (n *Network) reannounce(cfg Config) {
+	if n.announce != nil {
+		n.announce.Shutdown()
 	}
-	fmt.Println()
-	fmt.Println("Жду Agentgram в этой сети.")
-	fmt.Println("В Agentgram: Настройки → Agentgram → Компьютеры → «" + computerName() + "» → Подключить.")
-	fmt.Println("Код на телефоне должен быть таким:  " + code[:3] + " " + code[3:])
-	fmt.Println()
-	cfg := <-done
-	announce.Shutdown()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	_ = server.Shutdown(ctx)
-	log.Println("подключён")
-	return cfg, nil
+	txt := []string{"v=1", "pk=" + base64.RawURLEncoding.EncodeToString(n.key.PublicKey().Bytes())}
+	if cfg.BotToken != "" {
+		txt = append(txt, "paired=1", "bot="+cfg.BotName, "engine="+cfg.Engine)
+	}
+	announce, err := zeroconf.RegisterProxy(computerName(), pairService, "local.", n.port, computerName(), localAddresses(), txt, nil)
+	if err != nil {
+		log.Println("сеть:", err)
+		return
+	}
+	n.announce = announce
+}
+
+func (n *Network) readSealed(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "", http.StatusMethodNotAllowed)
+		return nil, false
+	}
+	body, _ := io.ReadAll(io.LimitReader(r.Body, 8192))
+	sealed, err := base64.RawURLEncoding.DecodeString(strings.TrimSpace(string(body)))
+	if err != nil {
+		http.Error(w, "bad", http.StatusBadRequest)
+		return nil, false
+	}
+	plain, err := openPairing(n.key, sealed)
+	if err != nil {
+		http.Error(w, "bad", http.StatusBadRequest)
+		return nil, false
+	}
+	return plain, true
+}
+
+func writeJSON(w http.ResponseWriter, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func (n *Network) handlePair(w http.ResponseWriter, r *http.Request) {
+	if cfg, _ := loadConfig(); cfg.BotToken != "" {
+		// already connected: connecting again only after «Disconnect» in Agentgram, or «agentgram-helper pair» here
+		http.Error(w, "already connected", http.StatusConflict)
+		return
+	}
+	plain, ok := n.readSealed(w, r)
+	if !ok {
+		return
+	}
+	var p pairPayload
+	if json.Unmarshal(plain, &p) != nil || p.BotToken == "" || p.OwnerID == 0 {
+		http.Error(w, "bad", http.StatusBadRequest)
+		return
+	}
+	me, err := NewBot(p.BotToken).GetMe()
+	if err != nil {
+		http.Error(w, "the bot does not answer", http.StatusBadRequest)
+		return
+	}
+	cfg, _ := loadConfig()
+	cfg.BotToken, cfg.OwnerID, cfg.BotName, cfg.PhoneSecret = p.BotToken, p.OwnerID, me.Username, p.Secret
+	if p.Engine != "" {
+		cfg.Engine = p.Engine
+	}
+	if err := saveConfig(cfg); err != nil {
+		http.Error(w, "save", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true, "bot": me.Username, "computer": computerName(), "projects": cfg.ProjectsDir})
+	n.reannounce(cfg)
+	select {
+	case n.Paired <- cfg:
+	default:
+	}
+}
+
+// The phone proves it is the one that connected this computer: the secret it sent then, and a fresh time
+func (n *Network) authorized(w http.ResponseWriter, r *http.Request) (Config, bool) {
+	plain, ok := n.readSealed(w, r)
+	if !ok {
+		return Config{}, false
+	}
+	var req struct {
+		Secret string `json:"secret"`
+		Time   int64  `json:"time"`
+	}
+	cfg, _ := loadConfig()
+	if json.Unmarshal(plain, &req) != nil || cfg.PhoneSecret == "" || req.Secret != cfg.PhoneSecret || abs(time.Now().Unix()-req.Time) > 300 {
+		http.Error(w, "not yours", http.StatusForbidden)
+		return Config{}, false
+	}
+	return cfg, true
+}
+
+func (n *Network) handleInfo(w http.ResponseWriter, r *http.Request) {
+	cfg, ok := n.authorized(w, r)
+	if !ok {
+		return
+	}
+	info := map[string]any{"bot": cfg.BotName, "engine": cfg.Engine, "projects": cfg.ProjectsDir, "computer": computerName()}
+	if n.Status != nil {
+		for k, v := range n.Status() {
+			info[k] = v
+		}
+	}
+	writeJSON(w, info)
+}
+
+func (n *Network) handleUnpair(w http.ResponseWriter, r *http.Request) {
+	cfg, ok := n.authorized(w, r)
+	if !ok {
+		return
+	}
+	cfg.BotToken, cfg.OwnerID, cfg.BotName, cfg.PhoneSecret = "", 0, "", ""
+	if err := saveConfig(cfg); err != nil {
+		http.Error(w, "save", http.StatusInternalServerError)
+		return
+	}
+	writeJSON(w, map[string]any{"ok": true})
+	n.reannounce(cfg)
+	select {
+	case n.Unpaired <- struct{}{}:
+	default:
+	}
+}
+
+func abs(v int64) int64 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func localAddresses() []string {

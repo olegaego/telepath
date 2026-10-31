@@ -15,6 +15,8 @@ type Config struct {
 	OwnerID     int64  `json:"owner_id"`
 	Engine      string `json:"engine"`       // "claude" or "codex"
 	ProjectsDir string `json:"projects_dir"` // where new projects are made and folders are listed from
+	BotName     string `json:"bot_name"`
+	PhoneSecret string `json:"phone_secret"` // from the phone that connected this computer, for its later requests
 }
 
 type TopicState struct {
