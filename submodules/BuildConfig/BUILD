@@ -11,6 +11,9 @@ load(
     "telegram_app_specific_url_scheme",
     "telegram_enable_icloud",
     "telegram_enable_siri",
+    "agentgram_push_relay_url",
+    "agentgram_push_relay_key",
+    "agentgram_push_relay_auth",
 )
 
 objc_library(
@@ -31,6 +34,9 @@ objc_library(
         "-DAPP_SPECIFIC_URL_SCHEME=\\\"{}\\\"".format(telegram_app_specific_url_scheme),
         "-DAPP_CONFIG_IS_ICLOUD_ENABLED={}".format("true" if telegram_enable_icloud else "false"),
         "-DAPP_CONFIG_IS_SIRI_ENABLED={}".format("true" if telegram_enable_siri else "false"),
+        "-DAPP_CONFIG_PUSH_RELAY_URL=\\\"{}\\\"".format(agentgram_push_relay_url),
+        "-DAPP_CONFIG_PUSH_RELAY_KEY=\\\"{}\\\"".format(agentgram_push_relay_key),
+        "-DAPP_CONFIG_PUSH_RELAY_AUTH=\\\"{}\\\"".format(agentgram_push_relay_auth),
     ],
     hdrs = glob([
         "PublicHeaders/**/*.h",
