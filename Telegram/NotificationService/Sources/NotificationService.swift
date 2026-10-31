@@ -2708,6 +2708,14 @@ final class NotificationService: UNNotificationServiceExtension {
         self.initialContent = request.content
         self.contentHandler = contentHandler
 
+        // Agentgram: while pushes are being set up, say why a push is not opened before the handler even starts
+        // (TODO before the App Store: remove)
+        if let reason = agentgramEarlyFailure(request.content.userInfo), let mutable = request.content.mutableCopy() as? UNMutableNotificationContent {
+            mutable.title = "Agentgram"
+            mutable.body = "push: " + reason
+            self.initialContent = mutable
+        }
+
         self.impl = nil
 
         let content = self.content
@@ -3200,4 +3208,25 @@ private func agentgramDebugContent(_ reason: String) -> NotificationContent {
     content.title = "Agentgram"
     content.body = "push: " + reason
     return content
+}
+
+private func agentgramEarlyFailure(_ payload: [AnyHashable: Any]) -> String? {
+    guard var p = payload["p"] as? String else {
+        return "no p, keys " + payload.keys.map { "\($0)" }.sorted().joined(separator: ",")
+    }
+    p = p.replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
+    while p.count % 4 != 0 {
+        p.append("=")
+    }
+    guard let data = Data(base64Encoded: p) else {
+        return "p is not base64, \(p.count) chars"
+    }
+    guard let bundleId = Bundle.main.bundleIdentifier, let dot = bundleId.range(of: ".", options: .backwards) else {
+        return "no bundle id"
+    }
+    let group = "group." + String(bundleId[..<dot.lowerBound])
+    if FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: group) == nil {
+        return "no app group " + group
+    }
+    return "started, key \(data.prefix(8).map { String(format: "%02x", $0) }.joined()), \(data.count) bytes"
 }
