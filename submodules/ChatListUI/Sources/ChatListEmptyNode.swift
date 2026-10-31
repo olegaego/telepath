@@ -1,4 +1,5 @@
 import Foundation
+import Superfolders
 import LottieSettings
 import UIKit
 import AsyncDisplayKit
@@ -199,9 +200,9 @@ final class ChatListEmptyNode: ASDisplayNode {
                 descriptionText = strings.ChatList_EmptyChatListFilterText
                 buttonText = strings.ChatList_EmptyChatListEditFilter
             case .superfolder:
-                text = strings.Superfolder_EmptyTitle
-                descriptionText = strings.Superfolder_EmptyText
-                buttonText = strings.Superfolder_AddChats
+                text = Superfolders.text(.emptyTitle, languageCode: strings.primaryComponent.languageCode)
+                descriptionText = Superfolders.text(.emptyText, languageCode: strings.primaryComponent.languageCode)
+                buttonText = Superfolders.text(.addChats, languageCode: strings.primaryComponent.languageCode)
             case .forum:
                 text = strings.ChatList_EmptyTopicsTitle
                 buttonText = strings.ChatList_EmptyTopicsCreate

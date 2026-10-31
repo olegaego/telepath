@@ -585,21 +585,21 @@ private enum ChatListFilterPresetEntry: ItemListNodeEntry {
         case let .inviteLinkInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .markdown(text), sectionId: self.section)
         case .superfolderIconHeader:
-            return ItemListSectionHeaderItem(presentationData: presentationData, text: presentationData.strings.Superfolder_IconHeader, sectionId: self.section)
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: Superfolders.text(.iconHeader, languageCode: presentationData.strings.primaryComponent.languageCode), sectionId: self.section)
         case let .superfolderIcon(title, image):
             return ItemListPeerActionItem(presentationData: presentationData, systemStyle: .glass, icon: image, title: title, sectionId: self.section, height: .generic, editing: false, action: {
                 arguments.openSuperfolderIcon()
             })
         case let .superfolderMove(value):
-            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: presentationData.strings.Superfolder_RemoveFromChats, value: value, sectionId: self.section, style: .blocks, updated: { value in
+            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: Superfolders.text(.removeFromChats, languageCode: presentationData.strings.primaryComponent.languageCode), value: value, sectionId: self.section, style: .blocks, updated: { value in
                 arguments.toggleSuperfolderMove(value)
             })
         case .superfolderDelete:
-            return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: presentationData.strings.Superfolder_Delete, kind: .destructive, alignment: .natural, sectionId: self.section, style: .blocks, action: {
+            return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: Superfolders.text(.delete, languageCode: presentationData.strings.primaryComponent.languageCode), kind: .destructive, alignment: .natural, sectionId: self.section, style: .blocks, action: {
                 arguments.deleteSuperfolder()
             })
         case .superfolderMoveFooter:
-            return ItemListTextItem(presentationData: presentationData, text: .plain(presentationData.strings.Superfolder_RemoveFromChatsInfo), sectionId: self.section)
+            return ItemListTextItem(presentationData: presentationData, text: .plain(Superfolders.text(.removeFromChatsInfo, languageCode: presentationData.strings.primaryComponent.languageCode)), sectionId: self.section)
         }
     }
 }
@@ -660,12 +660,12 @@ private func chatListFilterPresetControllerEntries(context: AccountContext, pres
     }
     
     // A superfolder's name is plain text, without the emoji button.
-    entries.append(.nameHeader(title: isSuperfolder ? presentationData.strings.Superfolder_NameHeader : presentationData.strings.ChatListFolder_NameSectionHeader, enableAnimations: state.name.entities.isEmpty ? nil : state.name.enableAnimations))
-    entries.append(.name(placeholder: isSuperfolder ? presentationData.strings.Superfolder_NamePlaceholder : presentationData.strings.ChatListFolder_NamePlaceholder, value: state.name.rawAttributedString, inputMode: isSuperfolder ? nil : state.nameInputMode, enableAnimations: state.name.enableAnimations))
+    entries.append(.nameHeader(title: isSuperfolder ? Superfolders.text(.nameHeader, languageCode: presentationData.strings.primaryComponent.languageCode) : presentationData.strings.ChatListFolder_NameSectionHeader, enableAnimations: state.name.entities.isEmpty ? nil : state.name.enableAnimations))
+    entries.append(.name(placeholder: isSuperfolder ? Superfolders.text(.namePlaceholder, languageCode: presentationData.strings.primaryComponent.languageCode) : presentationData.strings.ChatListFolder_NamePlaceholder, value: state.name.rawAttributedString, inputMode: isSuperfolder ? nil : state.nameInputMode, enableAnimations: state.name.enableAnimations))
     // Right under the name: the superfolder's icon, then whether its chats leave «Chats».
     if isSuperfolder {
         entries.append(.superfolderIconHeader)
-        entries.append(.superfolderIcon(superfolderIconImage == nil ? presentationData.strings.Superfolder_ChooseIcon : presentationData.strings.Superfolder_ChangeIcon, superfolderIconImage))
+        entries.append(.superfolderIcon(superfolderIconImage == nil ? Superfolders.text(.chooseIcon, languageCode: presentationData.strings.primaryComponent.languageCode) : Superfolders.text(.changeIcon, languageCode: presentationData.strings.primaryComponent.languageCode), superfolderIconImage))
         entries.append(.superfolderMove(!superfolderSettings.keepsChatsInChatList))
         entries.append(.superfolderMoveFooter)
     }
@@ -697,7 +697,7 @@ private func chatListFilterPresetControllerEntries(context: AccountContext, pres
         }
     }
     
-    entries.append(.includePeerInfo(isSuperfolder ? (superfolderSettings.keepsChatsInChatList ? presentationData.strings.Superfolder_IncludeInfoKeep : presentationData.strings.Superfolder_IncludeInfoMove) : presentationData.strings.ChatListFolder_IncludeSectionInfo))
+    entries.append(.includePeerInfo(isSuperfolder ? (superfolderSettings.keepsChatsInChatList ? Superfolders.text(.includeInfoKeep, languageCode: presentationData.strings.primaryComponent.languageCode) : Superfolders.text(.includeInfoMove, languageCode: presentationData.strings.primaryComponent.languageCode)) : presentationData.strings.ChatListFolder_IncludeSectionInfo))
     
     // A superfolder is its name, icon and chats: no exclusions, colour or links.
     if isSuperfolder {
@@ -2097,15 +2097,15 @@ public func chatListFilterPresetController(context: AccountContext, currentPrese
         }
     )
     if isSuperfolder {
-        arguments.superfolderHeaderText = context.sharedContext.currentPresentationData.with { $0 }.strings.Superfolder_Info
+        arguments.superfolderHeaderText = Superfolders.text(.info, languageCode: context.sharedContext.currentPresentationData.with { $0 }.strings.primaryComponent.languageCode)
     }
     arguments.deleteSuperfolder = {
         let presentationData = context.sharedContext.currentPresentationData.with { $0 }
         let actionSheet = ActionSheetController(presentationData: presentationData)
         actionSheet.setItemGroups([
             ActionSheetItemGroup(items: [
-                ActionSheetTextItem(title: presentationData.strings.Superfolder_DeleteConfirmation),
-                ActionSheetButtonItem(title: presentationData.strings.Superfolder_Delete, color: .destructive, action: { [weak actionSheet] in
+                ActionSheetTextItem(title: Superfolders.text(.deleteConfirmation, languageCode: presentationData.strings.primaryComponent.languageCode)),
+                ActionSheetButtonItem(title: Superfolders.text(.delete, languageCode: presentationData.strings.primaryComponent.languageCode), color: .destructive, action: { [weak actionSheet] in
                     actionSheet?.dismissAnimated()
                     Superfolders.update(engine: context.engine, { settings in
                         settings = .default
@@ -2297,7 +2297,7 @@ public func chatListFilterPresetController(context: AccountContext, currentPrese
             hadLinks = true
         }
         
-        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(isSuperfolder ? (superfolderSettings.isCreated ? (superfolderSettings.title.isEmpty ? presentationData.strings.Superfolder_DefaultTitle : superfolderSettings.title) : presentationData.strings.Superfolder_NewTitle) : (currentPreset != nil ? presentationData.strings.ChatListFolder_TitleEdit : presentationData.strings.ChatListFolder_TitleCreate)), leftNavigationButton: isSuperfolder ? nil : leftNavigationButton, rightNavigationButton: rightNavigationButton, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back), animateChanges: false)
+        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(isSuperfolder ? (superfolderSettings.isCreated ? (superfolderSettings.title.isEmpty ? Superfolders.text(.defaultTitle, languageCode: presentationData.strings.primaryComponent.languageCode) : superfolderSettings.title) : Superfolders.text(.newTitle, languageCode: presentationData.strings.primaryComponent.languageCode)) : (currentPreset != nil ? presentationData.strings.ChatListFolder_TitleEdit : presentationData.strings.ChatListFolder_TitleCreate)), leftNavigationButton: isSuperfolder ? nil : leftNavigationButton, rightNavigationButton: rightNavigationButton, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back), animateChanges: false)
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: chatListFilterPresetControllerEntries(context: context, presentationData: presentationData, isNewFilter: currentPreset == nil, currentPreset: currentPreset, state: state, includePeers: includePeers, excludePeers: excludePeers, isPremium: isPremium, limit: premiumLimits.maxFolderChatsCount, inviteLinks: sharedLinks, hadLinks: hadLinks, isSuperfolder: isSuperfolder, superfolderSettings: superfolderSettings, superfolderIconImage: superfolderIconImage, isSuperfolderFolder: superfolderFolderId != nil), style: .blocks, emptyStateItem: nil, crossfadeState: crossfadeAnimation, animateChanges: !skipStateAnimation)
         skipStateAnimation = false
         

@@ -236,14 +236,14 @@ func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoI
                             } else {
                                 staysInByType = false
                             }
-                            let title = superfolderSettings.title.isEmpty ? strings.Superfolder_DefaultTitle : superfolderSettings.title
-                            items.append(.action(ContextMenuActionItem(text: isInside ? strings.Superfolder_RemoveFrom(title).string : strings.Superfolder_MoveTo(title).string, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: isInside ? "Chat/Context Menu/MoveToChats" : "Chat/Context Menu/AddToFolder"), color: theme.contextMenu.primaryColor) }, action: { _, f in
+                            let title = superfolderSettings.title.isEmpty ? Superfolders.text(.defaultTitle, languageCode: strings.primaryComponent.languageCode) : superfolderSettings.title
+                            items.append(.action(ContextMenuActionItem(text: isInside ? Superfolders.removeFrom(title, languageCode: strings.primaryComponent.languageCode) : Superfolders.moveTo(title, languageCode: strings.primaryComponent.languageCode), icon: { theme in generateTintedImage(image: UIImage(bundleImageName: isInside ? "Chat/Context Menu/MoveToChats" : "Chat/Context Menu/AddToFolder"), color: theme.contextMenu.primaryColor) }, action: { _, f in
                                 Superfolders.setChat(engine: context.engine, peerId: peerId, isInside: !isInside, staysInByType: staysInByType)
                                 f(.dismissWithoutContent)
                             })))
                             if isInside, case let .chatList(currentFilter) = source, Superfolders.isOwnFilterId(currentFilter?.id), !superfolderSettings.keepsChatsInChatList {
                                 let isAlsoInChatList = superfolderSettings.alsoInChatListPeerIds.contains(peerId.toInt64())
-                                items.append(.action(ContextMenuActionItem(text: isAlsoInChatList ? strings.Superfolder_NotInChats : strings.Superfolder_AlsoInChats, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: isAlsoInChatList ? "Chat/Context Menu/RemoveFromFolder" : "Chat/Context Menu/Chats"), color: theme.contextMenu.primaryColor) }, action: { _, f in
+                                items.append(.action(ContextMenuActionItem(text: isAlsoInChatList ? Superfolders.text(.notInChats, languageCode: strings.primaryComponent.languageCode) : Superfolders.text(.alsoInChats, languageCode: strings.primaryComponent.languageCode), icon: { theme in generateTintedImage(image: UIImage(bundleImageName: isAlsoInChatList ? "Chat/Context Menu/RemoveFromFolder" : "Chat/Context Menu/Chats"), color: theme.contextMenu.primaryColor) }, action: { _, f in
                                     let id = peerId.toInt64()
                                     Superfolders.update(engine: context.engine, { settings in
                                         settings.alsoInChatListPeerIds.removeAll(where: { $0 == id })

@@ -4189,7 +4189,7 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
     }
 
     var superfolderTitle: String {
-        return self.superfolderSettings.title.isEmpty ? self.presentationData.strings.Superfolder_DefaultTitle : self.superfolderSettings.title
+        return self.superfolderSettings.title.isEmpty ? Superfolders.text(.defaultTitle, languageCode: self.presentationData.strings.primaryComponent.languageCode) : self.superfolderSettings.title
     }
 
     // The superfolder's list is a folder kept on the device, with its own folders as tabs; it follows the settings.

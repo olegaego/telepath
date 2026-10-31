@@ -17,6 +17,64 @@ public enum Superfolders {
     // Its folders take ids below this one.
     private static let firstFolderId: Int32 = -300
 
+    // Agentgram: the superfolder's own texts. The server's language packs do not have them, so a language switched
+    // from the server would show them in English; the Russian ones live here.
+    public enum Text {
+        case defaultTitle, info, newTitle, nameHeader, namePlaceholder, iconHeader, chooseIcon, changeIcon, removeFromChats, removeFromChatsInfo, includeInfoMove, includeInfoKeep, delete, deleteConfirmation, alsoInChats, notInChats, emptyTitle, emptyText, addChats
+    }
+
+    public static func text(_ text: Text, languageCode: String) -> String {
+        let ru = languageCode.hasPrefix("ru")
+        switch text {
+        case .defaultTitle:
+            return ru ? "Суперпапка" : "Superfolder"
+        case .info:
+            return ru ? "Отдельная вкладка со своими чатами, папками и историями. Например, всё рабочее здесь, а личное в «Чатах»." : "A tab of its own with its own chats, folders and stories. For example, everything for work here and your personal chats in Chats."
+        case .newTitle:
+            return ru ? "Новая суперпапка" : "New Superfolder"
+        case .nameHeader:
+            return ru ? "НАЗВАНИЕ СУПЕРПАПКИ" : "SUPERFOLDER NAME"
+        case .namePlaceholder:
+            return ru ? "Название суперпапки" : "Superfolder Name"
+        case .iconHeader:
+            return ru ? "ИКОНКА СУПЕРПАПКИ" : "SUPERFOLDER ICON"
+        case .chooseIcon:
+            return ru ? "Выбрать иконку" : "Choose Icon"
+        case .changeIcon:
+            return ru ? "Изменить иконку" : "Change Icon"
+        case .removeFromChats:
+            return ru ? "Убирать из Чатов" : "Remove from Chats"
+        case .removeFromChatsInfo:
+            return ru ? "Если выключить, чаты суперпапки останутся и в «Чатах». Отдельный чат можно показать в обоих местах долгим нажатием на него." : "If off, the superfolder's chats stay in Chats too. A single chat can be shown in both places with a long press on it."
+        case .includeInfoMove:
+            return ru ? "Эти чаты будут только в суперпапке, из «Чатов» они уйдут." : "These chats will be only in the superfolder, they leave Chats."
+        case .includeInfoKeep:
+            return ru ? "Эти чаты будут и в суперпапке, и в «Чатах»." : "These chats will be both in the superfolder and in Chats."
+        case .delete:
+            return ru ? "Удалить суперпапку" : "Delete Superfolder"
+        case .deleteConfirmation:
+            return ru ? "Чаты вернутся в «Чаты», а папки, закрепы и иконка суперпапки удалятся." : "The chats go back to Chats. The superfolder's folders, pinned chats and icon are deleted."
+        case .alsoInChats:
+            return ru ? "Показывать и в «Чатах»" : "Also Show in Chats"
+        case .notInChats:
+            return ru ? "Не показывать в «Чатах»" : "Don't Show in Chats"
+        case .emptyTitle:
+            return ru ? "Суперпапка пуста" : "Superfolder Is Empty"
+        case .emptyText:
+            return ru ? "В этой суперпапке пока нет чатов." : "There are no chats in this superfolder yet."
+        case .addChats:
+            return ru ? "Добавить чаты" : "Add Chats"
+        }
+    }
+
+    public static func moveTo(_ title: String, languageCode: String) -> String {
+        return languageCode.hasPrefix("ru") ? "Переместить в «\(title)»" : "Move to \(title)"
+    }
+
+    public static func removeFrom(_ title: String, languageCode: String) -> String {
+        return languageCode.hasPrefix("ru") ? "Убрать из «\(title)»" : "Remove from \(title)"
+    }
+
     public static func isFolderId(_ id: Int32?) -> Bool {
         guard let id else {
             return false

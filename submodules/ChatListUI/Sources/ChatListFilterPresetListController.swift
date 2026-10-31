@@ -649,7 +649,7 @@ public func chatListFilterPresetListController(context: AccountContext, mode: Ch
     )
     |> map { presentationData, state, filtersWithCountsValue, preferences, updatedFilterOrderValue, suggestedFilters, peer, allLimits, displayTags, superfolderSettings -> (ItemListControllerState, (ItemListNodeState, Any)) in
         let showsSuperfolder = state.showsSuperfolder && superfolderSettings.isCreated
-        let superfolderTitle = superfolderSettings.title.isEmpty ? presentationData.strings.Superfolder_DefaultTitle : superfolderSettings.title
+        let superfolderTitle = superfolderSettings.title.isEmpty ? Superfolders.text(.defaultTitle, languageCode: presentationData.strings.primaryComponent.languageCode) : superfolderSettings.title
         var presentationData = presentationData
 
         let updatedTheme = presentationData.theme.withModalBlocksBackground()

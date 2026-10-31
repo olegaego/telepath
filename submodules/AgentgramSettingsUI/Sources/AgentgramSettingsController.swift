@@ -11,6 +11,8 @@ import AccountContext
 import AppBundle
 import AgentgramCore
 import ThreadedBotSessions
+import Superfolders
+import ChatListUI
 
 // Agentgram: the «Agentgram» section of the settings. View (topics view, tabs, superfolder) works now; the agents
 // part (computers, engines, agents) is listed as coming. Texts are here, in Russian and English, since the
@@ -33,6 +35,7 @@ private struct AgentgramTexts {
     var engines: String { ru ? "Движки" : "Engines" }
     var agents: String { ru ? "Агенты" : "Agents" }
     var soon: String { ru ? "скоро" : "soon" }
+    var create: String { ru ? "создать" : "create" }
     var agentsFooter: String { ru ? "Подключение Claude Code, Codex и своих компьютеров появится в следующих версиях." : "Connecting Claude Code, Codex and your computers is coming in the next versions." }
     var sessionsUnderBot: String { ru ? "Сессии под ботом" : "Sessions Under the Bot" }
     var stockTopics: String { ru ? "Обычные темы Telegram" : "Telegram's Own Topics" }
@@ -79,10 +82,12 @@ public let agentgramSettingsIcon: UIImage? = {
 private final class MainArguments {
     let openTopicsView: () -> Void
     let openTabs: () -> Void
+    let openSuperfolder: () -> Void
 
-    init(openTopicsView: @escaping () -> Void, openTabs: @escaping () -> Void) {
+    init(openTopicsView: @escaping () -> Void, openTabs: @escaping () -> Void, openSuperfolder: @escaping () -> Void) {
         self.openTopicsView = openTopicsView
         self.openTabs = openTabs
+        self.openSuperfolder = openSuperfolder
     }
 }
 
@@ -138,7 +143,9 @@ private enum MainEntry: ItemListNodeEntry {
                 arguments.openTabs()
             })
         case let .superfolder(title, label):
-            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: superfolderIcon, title: title, enabled: false, label: label, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: superfolderIcon, title: title, label: label, sectionId: self.section, style: .blocks, action: {
+                arguments.openSuperfolder()
+            })
         case let .computers(title, label):
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: computersIcon, title: title, enabled: false, label: label, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
         case let .engines(title, label):
@@ -157,16 +164,18 @@ public func agentgramSettingsController(context: AccountContext) -> ViewControll
         pushImpl?(agentgramTopicsViewController(context: context))
     }, openTabs: {
         pushImpl?(agentgramTabsController(context: context))
+    }, openSuperfolder: {
+        pushImpl?(superfolderController(context: context))
     })
 
-    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, ThreadedBotSessions.settings(engine: context.engine))
-    |> map { presentationData, settings -> (ItemListControllerState, (ItemListNodeState, Any)) in
+    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, ThreadedBotSessions.settings(engine: context.engine), Superfolders.settings(engine: context.engine))
+    |> map { presentationData, settings, superfolder -> (ItemListControllerState, (ItemListNodeState, Any)) in
         let texts = AgentgramTexts(presentationData.strings)
         var entries: [MainEntry] = []
         entries.append(.viewHeader(texts.viewHeader))
         entries.append(.topicsView(texts.topicsView, settings.threadedModeOff == true ? texts.stockTopics : texts.sessionsUnderBot))
         entries.append(.tabs(texts.tabs))
-        entries.append(.superfolder(texts.superfolder, texts.soon))
+        entries.append(.superfolder(texts.superfolder, superfolder.isCreated ? superfolder.title : texts.create))
         entries.append(.agentsHeader(texts.agentsHeader))
         entries.append(.computers(texts.computers, texts.soon))
         entries.append(.engines(texts.engines, texts.soon))
@@ -262,16 +271,19 @@ private func agentgramTopicsViewController(context: AccountContext) -> ViewContr
 private final class TabsArguments {
     let setContacts: (Bool) -> Void
     let setCalls: (Bool) -> Void
+    let setSuperfolder: (Bool) -> Void
 
-    init(setContacts: @escaping (Bool) -> Void, setCalls: @escaping (Bool) -> Void) {
+    init(setContacts: @escaping (Bool) -> Void, setCalls: @escaping (Bool) -> Void, setSuperfolder: @escaping (Bool) -> Void) {
         self.setContacts = setContacts
         self.setCalls = setCalls
+        self.setSuperfolder = setSuperfolder
     }
 }
 
 private enum TabsEntry: ItemListNodeEntry {
     case header(String)
     case chats(String, String)
+    case superfolder(String, Bool, Bool)
     case contacts(String, Bool)
     case calls(String, Bool)
     case settings(String, String)
@@ -285,10 +297,11 @@ private enum TabsEntry: ItemListNodeEntry {
         switch self {
         case .header: return 0
         case .chats: return 1
-        case .contacts: return 2
-        case .calls: return 3
-        case .settings: return 4
-        case .footer: return 5
+        case .superfolder: return 2
+        case .contacts: return 3
+        case .calls: return 4
+        case .settings: return 5
+        case .footer: return 6
         }
     }
 
@@ -303,6 +316,10 @@ private enum TabsEntry: ItemListNodeEntry {
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
         case let .chats(title, label):
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: chatsIcon, title: title, label: label, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
+        case let .superfolder(title, value, enabled):
+            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, icon: superfolderIcon, title: title, value: value, enabled: enabled, sectionId: self.section, style: .blocks, updated: { value in
+                arguments.setSuperfolder(value)
+            })
         case let .contacts(title, value):
             return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, icon: contactsIcon, title: title, value: value, sectionId: self.section, style: .blocks, updated: { value in
                 arguments.setContacts(value)
@@ -327,13 +344,17 @@ private func agentgramTabsController(context: AccountContext) -> ViewController 
     }, setCalls: { value in
         AgentgramTabs.showsCalls = value
         changed.set(0)
+    }, setSuperfolder: { value in
+        AgentgramTabs.showsSuperfolder = value
+        changed.set(0)
     })
-    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, changed.get())
-    |> map { presentationData, _ -> (ItemListControllerState, (ItemListNodeState, Any)) in
+    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, changed.get(), Superfolders.settings(engine: context.engine))
+    |> map { presentationData, _, superfolder -> (ItemListControllerState, (ItemListNodeState, Any)) in
         let texts = AgentgramTexts(presentationData.strings)
         let entries: [TabsEntry] = [
             .header(texts.tabsHeader),
             .chats(texts.chats, texts.always),
+            .superfolder(superfolder.isCreated ? superfolder.title : texts.superfolder, superfolder.isCreated && AgentgramTabs.showsSuperfolder, superfolder.isCreated),
             .contacts(texts.contacts, AgentgramTabs.showsContacts),
             .calls(texts.calls, AgentgramTabs.showsCalls),
             .settings(texts.settings, texts.always),

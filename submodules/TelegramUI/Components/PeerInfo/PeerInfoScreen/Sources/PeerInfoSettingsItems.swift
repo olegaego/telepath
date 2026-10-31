@@ -251,9 +251,6 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
     items[.shortcuts]!.append(PeerInfoScreenDisclosureItem(id: 4, text: presentationData.strings.Settings_ChatFolders, icon: PresentationResourcesSettings.chatFolders, action: {
         interaction.openSettings(.chatFolders)
     }))
-    items[.shortcuts]!.append(PeerInfoScreenDisclosureItem(id: 45, additionalBadgeLabel: presentationData.strings.Settings_New, text: presentationData.strings.Superfolder_DefaultTitle, icon: PresentationResourcesSettings.superfolder, action: {
-        interaction.openSettings(.superfolder)
-    }))
     
     let notificationsWarning: Bool
     if let settings = data.globalSettings {
