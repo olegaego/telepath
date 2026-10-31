@@ -12,7 +12,24 @@ public enum ThreadedBotSessions {
     // them this often while it shows them.
     public static let refreshInterval: Double = 30.0
 
+    // Agentgram: the master switch («Agentgram → Topics view»). Off, every bot is shown the stock Telegram way:
+    // no sessions in the chat list, no arrow, the topic switcher inside the bot's chat. Kept for the whole app,
+    // read synchronously by the rows; the change shows once the chat list is rebuilt.
+    private static let enabledKey = "agentgram.threadedMode.enabled"
+
+    public static var isEnabled: Bool {
+        get {
+            return UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: enabledKey)
+        }
+    }
+
     public static func isThreadedBot(_ peer: EnginePeer?) -> Bool {
+        guard isEnabled else {
+            return false
+        }
         if case let .user(user) = peer, let botInfo = user.botInfo, botInfo.flags.contains(.hasForum) {
             return true
         }
@@ -21,6 +38,9 @@ public enum ThreadedBotSessions {
 
     // The bot lets users start topics themselves (its «New Chat» button).
     public static func canStartSession(_ peer: EnginePeer?) -> Bool {
+        guard isEnabled else {
+            return false
+        }
         if case let .user(user) = peer, let botInfo = user.botInfo, botInfo.flags.contains(.hasForum), botInfo.flags.contains(.forumManagedByUser) {
             return true
         }

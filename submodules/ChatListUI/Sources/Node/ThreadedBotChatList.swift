@@ -8,7 +8,7 @@ import ThreadedBotSessions
 // The list itself is Telegram's (chatListViewForLocationPlain); this only adds the sessions to it.
 public func chatListViewForLocation(chatListLocation: ChatListControllerLocation, location: ChatListNodeLocation, account: Account, shouldLoadCanMessagePeer: Bool) -> Signal<ChatListNodeViewUpdate, NoError> {
     let plain = chatListViewForLocationPlain(chatListLocation: chatListLocation, location: location, account: account, shouldLoadCanMessagePeer: shouldLoadCanMessagePeer)
-    guard case .chatList = chatListLocation else {
+    guard case .chatList = chatListLocation, ThreadedBotSessions.isEnabled else {
         return plain
     }
     // every update of the list gets a number, so an update caused only by the sessions is not taken for a new one
