@@ -40,7 +40,7 @@ public enum ThreadedBotSessions {
         case .topicsInsideInfo:
             return ru ? "Одна строка для бота, его темы открываются внутри чата." : "One row for the bot, its topics open inside the chat."
         case .listInfo:
-            return ru ? "Темы показываются под ботом. Если показывать одним чатом, останется одна строка, как у сообщества." : "Topics are listed under the bot. Show as One Chat keeps a single row, like a community."
+            return ru ? "Темы показываются под ботом. «Отображать как один чат» оставляет одну строку, как у сообщества." : "Topics are listed under the bot. Show as One Chat keeps a single row, like a community."
         case .inChatList:
             return ru ? "В СПИСКЕ ЧАТОВ" : "IN CHAT LIST"
         case .otherTopics:
