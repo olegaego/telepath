@@ -60,7 +60,7 @@ private func icon(_ name: String, _ rgb: UInt32) -> UIImage? {
 private let topicsIcon = icon("Item List/Icons/Topics", 0x2AABEE)
 private let tabsIcon = icon("Item List/Icons/Multiple", 0x5856D6)
 private let superfolderIcon = icon("Item List/Icons/Folder", 0xFF9500)
-private let computersIcon = icon("Item List/Icons/Devices", 0x8E8E93)
+private let computersIcon = icon("Item List/Icons/Devices", 0x5856D6)
 private let enginesIcon = icon("Item List/Icons/Chatbot", 0x8E8E93)
 private let agentsIcon = icon("Item List/Icons/Bot", 0x8E8E93)
 private let chatsIcon = icon("Item List/Icons/Chat", 0x2AABEE)
@@ -86,11 +86,13 @@ private final class MainArguments {
     let openTopicsView: () -> Void
     let openTabs: () -> Void
     let openSuperfolder: () -> Void
+    let openComputers: () -> Void
 
-    init(openTopicsView: @escaping () -> Void, openTabs: @escaping () -> Void, openSuperfolder: @escaping () -> Void) {
+    init(openTopicsView: @escaping () -> Void, openTabs: @escaping () -> Void, openSuperfolder: @escaping () -> Void, openComputers: @escaping () -> Void) {
         self.openTopicsView = openTopicsView
         self.openTabs = openTabs
         self.openSuperfolder = openSuperfolder
+        self.openComputers = openComputers
     }
 }
 
@@ -150,7 +152,9 @@ private enum MainEntry: ItemListNodeEntry {
                 arguments.openSuperfolder()
             })
         case let .computers(title, label):
-            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: computersIcon, title: title, enabled: false, label: label, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: computersIcon, title: title, label: label, sectionId: self.section, style: .blocks, action: {
+                arguments.openComputers()
+            })
         case let .engines(title, label):
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: enginesIcon, title: title, enabled: false, label: label, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
         case let .agents(title, label):
@@ -169,6 +173,8 @@ public func agentgramSettingsController(context: AccountContext) -> ViewControll
         pushImpl?(agentgramTabsController(context: context))
     }, openSuperfolder: {
         pushImpl?(superfolderController(context: context))
+    }, openComputers: {
+        pushImpl?(agentgramComputersController(context: context))
     })
 
     let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, ThreadedBotSessions.settings(engine: context.engine), Superfolders.settings(engine: context.engine))
@@ -180,7 +186,7 @@ public func agentgramSettingsController(context: AccountContext) -> ViewControll
         entries.append(.tabs(texts.tabs))
         entries.append(.superfolder(texts.superfolder, superfolder.isCreated ? superfolder.title : texts.create))
         entries.append(.agentsHeader(texts.agentsHeader))
-        entries.append(.computers(texts.computers, texts.soon))
+        entries.append(.computers(texts.computers, ""))
         entries.append(.engines(texts.engines, texts.soon))
         entries.append(.agents(texts.agents, texts.soon))
         entries.append(.agentsFooter(texts.agentsFooter))

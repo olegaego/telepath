@@ -1757,6 +1757,12 @@ plist_fragment(
     </dict>
     <key>NSCameraUsageDescription</key>
     <string>We need this so that you can take and share photos and videos.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Agentgram finds your computer with the Agentgram helper on this network to connect your agents.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_agentgram._tcp</string>
+    </array>
     <key>NSContactsUsageDescription</key>
     <string>Telegram stores your contacts heavily encrypted in the cloud to let you connect with your friends across all your devices.</string>
     <key>NSFaceIDUsageDescription</key>
