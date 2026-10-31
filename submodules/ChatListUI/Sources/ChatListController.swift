@@ -6577,10 +6577,11 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
                     return generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/Add"), color: theme.contextMenu.primaryColor)
                 }, action: { c, f in
                     c?.dismiss(completion: {
-                        guard let strongSelf = self else {
+                        // As a sheet over everything, like the folders of «Chats», so it opens from any tab.
+                        guard let strongSelf = self, let navigationController = strongSelf.context.sharedContext.mainWindow?.viewController as? NavigationController else {
                             return
                         }
-                        strongSelf.push(chatListFilterPresetListController(context: strongSelf.context, mode: .default, showsSuperfolder: true))
+                        navigationController.pushViewController(chatListFilterPresetListController(context: strongSelf.context, mode: .modal, showsSuperfolder: true))
                     })
                 })))
                 let settings = strongSelf.superfolderSettings
