@@ -28,7 +28,7 @@ func agentgramVoiceCaptions(context: AccountContext, peerId: EnginePeer.Id, mess
         }
         let appLocale = context.sharedContext.currentPresentationData.with { $0 }.strings.baseLanguageCode
         let transformed: [Signal<EnqueueMessage, NoError>] = messages.map { message in
-            guard case let .message(text, attributes, inlineStickers, mediaReference, threadId, replyToMessageId, replyToStoryId, localGroupingKey, correlationId, bubbleUpEmojiOrStickersets) = message, text.isEmpty, let file = mediaReference?.media as? TelegramMediaFile, file.isVoice, let path = context.account.postbox.mediaBox.completedResourcePath(file.resource) else {
+            guard case let .message(text, attributes, inlineStickers, mediaReference, threadId, replyToMessageId, replyToStoryId, localGroupingKey, correlationId, bubbleUpEmojiOrStickersets) = message, text.isEmpty, let file = mediaReference?.media as? TelegramMediaFile, file.isVoice, let path = context.engine.resources.completedResourcePath(id: EngineMediaResource.Id(file.resource.id)) else {
                 return .single(message)
             }
             return convertOpusToAAC(sourcePath: path, allocateTempFile: {
