@@ -112,7 +112,8 @@ http.createServer(async (req, res) => {
     // Only the account-encrypted payload goes on; a push Telegram did not encrypt for the account is not passed on.
     if (typeof inner.p !== 'string') { console.error('push without the account layer, keys:', Object.keys(inner).join(',')); return done(201); }
     const r = await apns(device, { aps: { alert: { body: 'New message' }, sound: 'agentgram.caf', 'mutable-content': 1 }, p: inner.p });
-    if (r.status !== 200) console.error('apns', r.status, (r.data || '').slice(0, 120));
+    // one line per push, without anything from it: the time, Apple's answer, the size of the ciphertext
+    console.log(new Date().toISOString(), 'apns', r.status, device.sandbox ? 'sandbox' : 'production', inner.p.length, (r.data || '').slice(0, 80));
     done(r.status === 410 ? 410 : 201);
   } catch (e) { console.error('relay', e.message); done(400); }
 }).listen(PORT, () => console.log('agentgram push relay on', PORT));
