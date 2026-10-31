@@ -931,7 +931,7 @@ private final class NotificationServiceHandler {
             guard let strongSelf = self, let recordId = recordId else {
                 Logger.shared.log("NotificationService \(episode)", "Couldn't find a matching decryption key")
 
-                let content = NotificationContent(isLockedMessage: nil)
+                let content = agentgramDebugContent("no account for key \(payloadData.prefix(8).map { String(format: "%02x", $0) }.joined()), \(payloadData.count) bytes, \(records.records.count) accounts") // Agentgram
                 updateCurrentContent(content)
                 completed()
 
@@ -953,7 +953,7 @@ private final class NotificationServiceHandler {
                 guard let stateManager = stateManager else {
                     Logger.shared.log("NotificationService \(episode)", "Didn't receive stateManager")
 
-                    let content = NotificationContent(isLockedMessage: nil)
+                    let content = agentgramDebugContent("no state") // Agentgram
                     updateCurrentContent(content)
                     completed()
                     return
