@@ -60,6 +60,7 @@ swift_library(
         "//submodules/ItemListPeerActionItem",
         "//submodules/ItemListPeerItem",
         "//submodules/ItemListUI",
+        "//submodules/AgentgramSettingsUI",
         "//submodules/LegacyComponents",
         "//submodules/LegacyMediaPickerUI",
         "//submodules/LegacyUI",
