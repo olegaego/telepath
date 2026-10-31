@@ -235,9 +235,13 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         if AgentgramTabs.showsCalls {
             controllers.append(callListController)
         }
+        // Agentgram: the superfolder's tab next to Chats, after or before it, unless turned off in «Agentgram → Tabs»
+        let showsSuperfolder = self.isSuperfolderCreated && AgentgramTabs.showsSuperfolder
+        if showsSuperfolder && AgentgramTabs.superfolderFirst {
+            controllers.append(superfolderController)
+        }
         controllers.append(chatListController)
-        // Agentgram: the superfolder's tab right after Chats, unless turned off in «Agentgram → Tabs»
-        if self.isSuperfolderCreated && AgentgramTabs.showsSuperfolder {
+        if showsSuperfolder && !AgentgramTabs.superfolderFirst {
             controllers.append(superfolderController)
         }
         if showNewsTab {
@@ -308,9 +312,13 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         if AgentgramTabs.showsCalls {
             controllers.append(self.callListController!)
         }
+        // Agentgram: the superfolder's tab next to Chats, after or before it, unless turned off in «Agentgram → Tabs»
+        let superfolderController = self.isSuperfolderCreated && AgentgramTabs.showsSuperfolder ? self.superfolderController : nil
+        if let superfolderController, AgentgramTabs.superfolderFirst {
+            controllers.append(superfolderController)
+        }
         controllers.append(self.chatListController!)
-        // Agentgram: the superfolder's tab right after Chats, unless turned off in «Agentgram → Tabs»
-        if self.isSuperfolderCreated && AgentgramTabs.showsSuperfolder, let superfolderController = self.superfolderController {
+        if let superfolderController, !AgentgramTabs.superfolderFirst {
             controllers.append(superfolderController)
         }
         if showNewsTab, let newsController = self.newsController {

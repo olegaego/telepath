@@ -47,6 +47,9 @@ private struct AgentgramTexts {
     var calls: String { ru ? "Звонки" : "Calls" }
     var settings: String { ru ? "Настройки" : "Settings" }
     var always: String { ru ? "всегда" : "always" }
+    var orderHeader: String { ru ? "ПОРЯДОК" : "ORDER" }
+    func superfolderFirst(_ name: String) -> String { ru ? "«\(name)» перед «Чатами»" : "\(name) Before Chats" }
+    func orderFooter(_ name: String) -> String { ru ? "Если включить, вкладка «\(name)» будет слева от «Чатов»." : "When on, the \(name) tab is left of Chats." }
     var tabsFooter: String { ru ? "Выключенные вкладки пропадают снизу. Контакты остаются в поиске и в «Новом сообщении», звонки в профиле." : "Tabs that are off leave the bottom bar. Contacts stay in search and New Message, calls in the profile." }
 }
 
@@ -272,11 +275,13 @@ private final class TabsArguments {
     let setContacts: (Bool) -> Void
     let setCalls: (Bool) -> Void
     let setSuperfolder: (Bool) -> Void
+    let setSuperfolderFirst: (Bool) -> Void
 
-    init(setContacts: @escaping (Bool) -> Void, setCalls: @escaping (Bool) -> Void, setSuperfolder: @escaping (Bool) -> Void) {
+    init(setContacts: @escaping (Bool) -> Void, setCalls: @escaping (Bool) -> Void, setSuperfolder: @escaping (Bool) -> Void, setSuperfolderFirst: @escaping (Bool) -> Void) {
         self.setContacts = setContacts
         self.setCalls = setCalls
         self.setSuperfolder = setSuperfolder
+        self.setSuperfolderFirst = setSuperfolderFirst
     }
 }
 
@@ -286,15 +291,26 @@ private enum TabsEntry: ItemListNodeEntry {
     case superfolder(String, Bool, Bool)
     case contacts(String, Bool)
     case calls(String, Bool)
+    case orderHeader(String)
+    case superfolderFirst(String, Bool)
+    case orderFooter(String)
     case settings(String, String)
     case footer(String)
 
     var section: ItemListSectionId {
-        return 0
+        switch self {
+        case .orderHeader, .superfolderFirst, .orderFooter:
+            return 1
+        default:
+            return 0
+        }
     }
 
     var stableId: Int32 {
         switch self {
+        case .orderHeader: return 10
+        case .superfolderFirst: return 11
+        case .orderFooter: return 12
         case .header: return 0
         case .chats: return 1
         case .superfolder: return 2
@@ -328,6 +344,14 @@ private enum TabsEntry: ItemListNodeEntry {
             return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, icon: callsIcon, title: title, value: value, sectionId: self.section, style: .blocks, updated: { value in
                 arguments.setCalls(value)
             })
+        case let .orderHeader(text):
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .superfolderFirst(title, value):
+            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: title, value: value, sectionId: self.section, style: .blocks, updated: { value in
+                arguments.setSuperfolderFirst(value)
+            })
+        case let .orderFooter(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         case let .settings(title, label):
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: settingsIcon, title: title, label: label, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
         case let .footer(text):
@@ -347,11 +371,14 @@ private func agentgramTabsController(context: AccountContext) -> ViewController 
     }, setSuperfolder: { value in
         AgentgramTabs.showsSuperfolder = value
         changed.set(0)
+    }, setSuperfolderFirst: { value in
+        AgentgramTabs.superfolderFirst = value
+        changed.set(0)
     })
     let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, changed.get(), Superfolders.settings(engine: context.engine))
     |> map { presentationData, _, superfolder -> (ItemListControllerState, (ItemListNodeState, Any)) in
         let texts = AgentgramTexts(presentationData.strings)
-        let entries: [TabsEntry] = [
+        var entries: [TabsEntry] = [
             .header(texts.tabsHeader),
             .chats(texts.chats, texts.always),
             .superfolder(superfolder.isCreated ? superfolder.title : texts.superfolder, superfolder.isCreated && AgentgramTabs.showsSuperfolder, superfolder.isCreated),
@@ -360,6 +387,12 @@ private func agentgramTabsController(context: AccountContext) -> ViewController 
             .settings(texts.settings, texts.always),
             .footer(texts.tabsFooter)
         ]
+        if superfolder.isCreated {
+            let name = superfolder.title.isEmpty ? texts.superfolder : superfolder.title
+            entries.append(.orderHeader(texts.orderHeader))
+            entries.append(.superfolderFirst(texts.superfolderFirst(name), AgentgramTabs.superfolderFirst))
+            entries.append(.orderFooter(texts.orderFooter(name)))
+        }
         let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(texts.tabs), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, animateChanges: false)
         return (controllerState, (listState, arguments))

@@ -117,6 +117,7 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
     private var superfolderTabIcon: UIImage?
     private let superfolderSettingsDisposable = MetaDisposable()
     private let superfolderTabIconDisposable = MetaDisposable()
+    private let superfolderTitleDisposable = MetaDisposable()
     public let previewing: Bool
     
     let openMessageFromSearchDisposable: MetaDisposable = MetaDisposable()
@@ -366,7 +367,10 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
                     
                     self.tabBarItem.image = icon
                     self.tabBarItem.selectedImage = icon
-                    if !self.presentationData.reduceMotion {
+                    if self.isSuperfolder {
+                        // Agentgram: the tab's title and icon follow the superfolder at once, before its list is opened
+                        self.followSuperfolderTabItem()
+                    } else if !self.presentationData.reduceMotion {
                         self.tabBarItem.animationName = "TabChats"
                         self.tabBarItem.animationOffset = CGPoint(x: 0.0, y: UIScreenPixel)
                     }
@@ -847,6 +851,7 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
     deinit {
         self.superfolderSettingsDisposable.dispose()
         self.superfolderTabIconDisposable.dispose()
+        self.superfolderTitleDisposable.dispose()
         self.openMessageFromSearchDisposable.dispose()
         self.badgeDisposable?.dispose()
         self.badgeIconDisposable?.dispose()
@@ -4192,9 +4197,17 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
         return self.superfolderSettings.title.isEmpty ? Superfolders.text(.defaultTitle, languageCode: self.presentationData.strings.primaryComponent.languageCode) : self.superfolderSettings.title
     }
 
-    // The superfolder's list is a folder kept on the device, with its own folders as tabs; it follows the settings.
-    private func reloadSuperfolder() {
+    // Agentgram: the superfolder's tab title and icon, from its settings, as soon as the tab exists
+    private func followSuperfolderTabItem() {
         let context = self.context
+        self.superfolderTitleDisposable.set((Superfolders.settings(engine: context.engine)
+        |> deliverOnMainQueue).startStrict(next: { [weak self] settings in
+            guard let self else {
+                return
+            }
+            self.superfolderSettings = settings
+            self.tabBarItem.title = self.superfolderTitle
+        }))
         self.superfolderTabIconDisposable.set((Superfolders.settings(engine: context.engine)
         |> map { $0.icon }
         |> distinctUntilChanged
@@ -4210,6 +4223,11 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
             self.tabBarItem.image = icon
             self.tabBarItem.selectedImage = icon
         }))
+    }
+
+    // The superfolder's list is a folder kept on the device, with its own folders as tabs; it follows the settings.
+    private func reloadSuperfolder() {
+        let context = self.context
         // Its settings, with the unread chats of it and of each of its folders for the folder tabs.
         let settingsAndUnread = Superfolders.settings(engine: context.engine)
         |> mapToSignal { settings -> Signal<(SuperfolderSettings, [Int32: (Int, Bool)]), NoError> in

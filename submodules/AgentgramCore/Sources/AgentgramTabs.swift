@@ -31,6 +31,19 @@ public enum AgentgramTabs {
         }
     }
 
+    // the superfolder's tab before Chats instead of after
+    private static let superfolderFirstKey = "agentgram.tabs.superfolderFirst"
+
+    public static var superfolderFirst: Bool {
+        get {
+            return UserDefaults.standard.bool(forKey: superfolderFirstKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: superfolderFirstKey)
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
+    }
+
     public static var showsCalls: Bool {
         get {
             return UserDefaults.standard.bool(forKey: callsKey)
