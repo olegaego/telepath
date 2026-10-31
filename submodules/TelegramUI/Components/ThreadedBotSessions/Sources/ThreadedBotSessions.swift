@@ -26,6 +26,34 @@ public enum ThreadedBotSessions {
         }
     }
 
+    // Agentgram: Threaded Mode's own texts. The server's language packs do not have them, so a language switched
+    // from the server would show them in English; the Russian ones live here.
+    public enum Text {
+        case topicsInside, topicsInsideInfo, listInfo, inChatList, otherTopics, topics, removeFromChatList, showInChatList
+    }
+
+    public static func text(_ text: Text, languageCode: String) -> String {
+        let ru = languageCode.hasPrefix("ru")
+        switch text {
+        case .topicsInside:
+            return ru ? "Темы внутри бота" : "Topics Inside the Bot"
+        case .topicsInsideInfo:
+            return ru ? "Одна строка для бота, его темы открываются внутри чата." : "One row for the bot, its topics open inside the chat."
+        case .listInfo:
+            return ru ? "Темы показываются под ботом. Если показывать одним чатом, останется одна строка, как у сообщества." : "Topics are listed under the bot. Show as One Chat keeps a single row, like a community."
+        case .inChatList:
+            return ru ? "В СПИСКЕ ЧАТОВ" : "IN CHAT LIST"
+        case .otherTopics:
+            return ru ? "ДРУГИЕ ТЕМЫ" : "OTHER TOPICS"
+        case .topics:
+            return ru ? "ТЕМЫ" : "TOPICS"
+        case .removeFromChatList:
+            return ru ? "Убрать из списка чатов" : "Remove from Chat List"
+        case .showInChatList:
+            return ru ? "Показать в списке чатов" : "Show in Chat List"
+        }
+    }
+
     public static func isThreadedBot(_ peer: EnginePeer?) -> Bool {
         guard isEnabled else {
             return false
