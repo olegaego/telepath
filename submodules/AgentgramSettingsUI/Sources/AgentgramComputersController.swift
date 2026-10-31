@@ -476,7 +476,7 @@ private enum ComputerEntry: ItemListNodeEntry {
 }
 
 func agentgramComputerController(context: AccountContext, computer: ConnectedComputer, browser: ComputersBrowser) -> ViewController {
-    let info = ValuePromise<[String: Any]?>(nil, ignoreRepeated: false)
+    let info = Promise<[String: Any]?>(nil)
     var asked = false
     var presentImpl: ((ViewController) -> Void)?
     var popImpl: (() -> Void)?
@@ -517,7 +517,7 @@ func agentgramComputerController(context: AccountContext, computer: ConnectedCom
         if let nearby, !asked {
             asked = true
             askComputer(nearby.endpoint, computer, path: "/info", completion: { result in
-                info.set(result)
+                info.set(.single(result))
             })
         }
         let engine = computer.engine == "codex" ? "Codex" : "Claude Code"
