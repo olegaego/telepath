@@ -23,13 +23,16 @@ public struct ThreadedBotSettings: Equatable, Codable {
     }
 
     public var bots: [Bot]
+    // Agentgram: «Agentgram → Topics view» set to Telegram's own topics: every bot is shown the stock way
+    public var threadedModeOff: Bool?
 
     public static var `default`: ThreadedBotSettings {
         return ThreadedBotSettings(bots: [])
     }
 
-    public init(bots: [Bot]) {
+    public init(bots: [Bot], threadedModeOff: Bool? = nil) {
         self.bots = bots
+        self.threadedModeOff = threadedModeOff
     }
 
     public func bot(_ peerId: EnginePeer.Id) -> Bot {

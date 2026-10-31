@@ -126,6 +126,8 @@ enum ChatListNodeEntry: Comparable, Identifiable {
         var displayAsTopicList: Bool
         // a Threaded Mode bot shown as one row draws a stack: the row is redrawn when that changes
         var threadedBotCollapsed: Bool = false
+        // Agentgram: the row is redrawn when Threaded Mode is switched off or on
+        var threadedModeOn: Bool = false
         
         init(
             index: EngineChatList.Item.Index,
@@ -189,6 +191,9 @@ enum ChatListNodeEntry: Comparable, Identifiable {
         
         static func ==(lhs: PeerEntryData, rhs: PeerEntryData) -> Bool {
             if lhs.index != rhs.index {
+                return false
+            }
+            if lhs.threadedModeOn != rhs.threadedModeOn {
                 return false
             }
             if lhs.threadedBotCollapsed != rhs.threadedBotCollapsed {
@@ -779,6 +784,7 @@ func chatListNodeEntriesForView(view: EngineChatList, state: ChatListNodeState, 
             requiresPremiumForMessaging: entry.isPremiumRequiredToMessage,
             displayAsTopicList: entry.displayAsTopicList
         )
+        peerEntryData.threadedModeOn = ThreadedBotSessions.isEnabled // Agentgram
         if threadInfo == nil, ThreadedBotSessions.isThreadedBot(entry.renderedPeer.peer) {
             peerEntryData.threadedBotCollapsed = ThreadedBotSessions.currentSettings(accountPeerId: accountPeerId).bot(entry.renderedPeer.peerId).showAsOneChat
         }

@@ -13,17 +13,20 @@ public enum ThreadedBotSessions {
     public static let refreshInterval: Double = 30.0
 
     // Agentgram: the master switch («Agentgram → Topics view»). Off, every bot is shown the stock Telegram way:
-    // no sessions in the chat list, no arrow, the topic switcher inside the bot's chat. Kept for the whole app,
-    // read synchronously by the rows; the change shows once the chat list is rebuilt.
-    private static let enabledKey = "agentgram.threadedMode.enabled"
+    // no sessions in the chat list, no arrow, the topic switcher inside the bot's chat. Kept in the account's
+    // ThreadedBotSettings, so the chat list follows it at once; read synchronously by the rows from here.
+    private static let enabledValue = Atomic<Bool>(value: true)
 
     public static var isEnabled: Bool {
-        get {
-            return UserDefaults.standard.object(forKey: enabledKey) as? Bool ?? true
-        }
-        set {
-            UserDefaults.standard.set(newValue, forKey: enabledKey)
-        }
+        return enabledValue.with { $0 }
+    }
+
+    public static func setEnabled(engine: TelegramEngine, _ value: Bool) {
+        let _ = updateThreadedBotSettings(engine: engine, { settings in
+            var settings = settings
+            settings.threadedModeOff = value ? nil : true
+            return settings
+        }).startStandalone()
     }
 
     // Agentgram: Threaded Mode's own texts. The server's language packs do not have them, so a language switched
@@ -109,6 +112,7 @@ public enum ThreadedBotSessions {
         }
         |> distinctUntilChanged
         |> afterNext { settings in
+            let _ = enabledValue.swap(settings.threadedModeOff != true)
             let _ = cachedSettings.modify { current in
                 var current = current
                 current[accountPeerId] = settings

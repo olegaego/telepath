@@ -8,7 +8,7 @@ import ThreadedBotSessions
 // The list itself is Telegram's (chatListViewForLocationPlain); this only adds the sessions to it.
 public func chatListViewForLocation(chatListLocation: ChatListControllerLocation, location: ChatListNodeLocation, account: Account, shouldLoadCanMessagePeer: Bool) -> Signal<ChatListNodeViewUpdate, NoError> {
     let plain = chatListViewForLocationPlain(chatListLocation: chatListLocation, location: location, account: account, shouldLoadCanMessagePeer: shouldLoadCanMessagePeer)
-    guard case .chatList = chatListLocation, ThreadedBotSessions.isEnabled else {
+    guard case .chatList = chatListLocation else {
         return plain
     }
     // every update of the list gets a number, so an update caused only by the sessions is not taken for a new one
@@ -17,9 +17,14 @@ public func chatListViewForLocation(chatListLocation: ChatListControllerLocation
     main.set(plain |> map { update -> (Int, ChatListNodeViewUpdate) in
         return (counter.modify { $0 + 1 }, update)
     })
-    let bots: Signal<[EnginePeer.Id], NoError> = main.get()
-    |> map { _, update -> [EnginePeer.Id] in
-        return update.list.items.compactMap { item -> EnginePeer.Id? in
+    // the settings come first: they also carry the master switch, which isThreadedBot reads
+    let settings = ThreadedBotSessions.settings(engine: TelegramEngine(account: account))
+    let bots: Signal<[EnginePeer.Id], NoError> = combineLatest(main.get(), settings)
+    |> map { main, settings -> [EnginePeer.Id] in
+        if settings.threadedModeOff == true {
+            return []
+        }
+        return main.1.list.items.compactMap { item -> EnginePeer.Id? in
             guard case .chatList = item.index, ThreadedBotSessions.isThreadedBot(item.renderedPeer.peer) else {
                 return nil
             }
@@ -52,7 +57,7 @@ public func chatListViewForLocation(chatListLocation: ChatListControllerLocation
         }
     }
     let lastNumber = Atomic<Int>(value: -1)
-    return combineLatest(main.get(), sessions, ThreadedBotSessions.settings(engine: TelegramEngine(account: account)))
+    return combineLatest(main.get(), sessions, settings)
     |> map { main, sessions, threadedBotSettings -> ChatListNodeViewUpdate in
         let (number, update) = main
         let onlySessionsChanged = lastNumber.swap(number) == number
