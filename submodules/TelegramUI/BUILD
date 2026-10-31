@@ -64,6 +64,7 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        "//submodules/TelegramUI/Components/ThreadedBotSessions",
         "//submodules/CrashReporting:CrashReporting",
         "//third-party/recaptcha:RecaptchaEnterprise",
         "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",

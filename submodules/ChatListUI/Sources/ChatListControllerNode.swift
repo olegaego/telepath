@@ -375,6 +375,9 @@ public final class ChatListContainerNode: ASDisplayNode, ASGestureRecognizerDele
         itemNode.listNode.openWebApp = { [weak self] amount in
             self?.openWebApp?(amount)
         }
+        itemNode.listNode.startBotSession = { [weak self] peerId in
+            self?.startBotSession?(peerId)
+        }
         itemNode.listNode.openPhotoSetup = { [weak self] in
             self?.openPhotoSetup?()
         }
@@ -451,6 +454,7 @@ public final class ChatListContainerNode: ASDisplayNode, ASGestureRecognizerDele
     var openStories: ((ChatListNode.OpenStoriesSubject, ASDisplayNode?) -> Void)?
     var openStarsTopup: ((Int64?) -> Void)?
     var openWebApp: ((TelegramUser) -> Void)?
+    var startBotSession: ((EnginePeer.Id) -> Void)?
     var openPhotoSetup: (() -> Void)?
     var openAccountFreezeInfo: (() -> Void)?
     var addedVisibleChatsWithPeerIds: (([EnginePeer.Id]) -> Void)?

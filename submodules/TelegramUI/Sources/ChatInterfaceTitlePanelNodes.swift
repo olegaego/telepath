@@ -2,6 +2,7 @@ import Foundation
 import UIKit
 import TelegramCore
 import AccountContext
+import ThreadedBotSessions
 import ChatPresentationInterfaceState
 import ChatControllerInteraction
 import ComponentFlow
@@ -371,7 +372,12 @@ func headerTopicsPanelForChatPresentationInterfaceState(_ chatPresentationInterf
                 }
             ))
         }
-    } else if let user = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramUser, let botInfo = user.botInfo, botInfo.flags.contains(.hasForum), chatPresentationInterfaceState.search == nil {
+    } else if let user = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramUser, let botInfo = user.botInfo, botInfo.flags.contains(.hasForum) {
+        // Threaded Mode bot: the sessions are listed under the bot in the chat list, no topics switcher in its chat,
+        // unless the bot is set to keep its topics inside (stock Telegram)
+        guard ThreadedBotSessions.currentSettings(accountPeerId: context.account.peerId).bot(user.id).topicsInside, chatPresentationInterfaceState.search == nil else {
+            return nil
+        }
         if !botInfo.flags.contains(.forumManagedByUser) {
             if !chatPresentationInterfaceState.hasTopics {
                 return nil
@@ -491,7 +497,12 @@ func floatingTopicsPanelForChatPresentationInterfaceState(_ chatPresentationInte
                 }
             )
         }
-    } else if let user = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramUser, let botInfo = user.botInfo, botInfo.flags.contains(.hasForum), chatPresentationInterfaceState.search == nil {
+    } else if let user = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramUser, let botInfo = user.botInfo, botInfo.flags.contains(.hasForum) {
+        // Threaded Mode bot: the sessions are listed under the bot in the chat list, no topics switcher in its chat,
+        // unless the bot is set to keep its topics inside (stock Telegram)
+        guard ThreadedBotSessions.currentSettings(accountPeerId: context.account.peerId).bot(user.id).topicsInside, chatPresentationInterfaceState.search == nil else {
+            return nil
+        }
         if !botInfo.flags.contains(.forumManagedByUser) {
             if !chatPresentationInterfaceState.hasTopics {
                 return nil

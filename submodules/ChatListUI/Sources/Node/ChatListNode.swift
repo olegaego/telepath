@@ -124,6 +124,7 @@ public final class ChatListNodeInteraction {
     let openStarsTopup: (Int64?) -> Void
     let editPeer: (ChatListItem) -> Void
     let openWebApp: (TelegramUser) -> Void
+    let startBotSession: (EnginePeer.Id) -> Void
     let openPhotoSetup: () -> Void
     let openAdInfo: (ASDisplayNode, AdPeer) -> Void
     let openAccountFreezeInfo: () -> Void
@@ -187,6 +188,7 @@ public final class ChatListNodeInteraction {
         openStarsTopup: @escaping (Int64?) -> Void,
         editPeer: @escaping (ChatListItem) -> Void,
         openWebApp: @escaping (TelegramUser) -> Void,
+        startBotSession: @escaping (EnginePeer.Id) -> Void = { _ in },
         openPhotoSetup: @escaping () -> Void,
         openAdInfo: @escaping (ASDisplayNode, AdPeer) -> Void,
         openAccountFreezeInfo: @escaping () -> Void,
@@ -237,6 +239,7 @@ public final class ChatListNodeInteraction {
         self.openStarsTopup = openStarsTopup
         self.editPeer = editPeer
         self.openWebApp = openWebApp
+        self.startBotSession = startBotSession
         self.openPhotoSetup = openPhotoSetup
         self.openAdInfo = openAdInfo
         self.openAccountFreezeInfo = openAccountFreezeInfo
@@ -1268,6 +1271,7 @@ public final class ChatListNode: ListViewImpl {
     public var openPremiumManagement: (() -> Void)?
     public var openStarsTopup: ((Int64?) -> Void)?
     public var openWebApp: ((TelegramUser) -> Void)?
+    public var startBotSession: ((EnginePeer.Id) -> Void)?
     public var openPhotoSetup: (() -> Void)?
     public var openAdInfo: ((ASDisplayNode, AdPeer) -> Void)?
     public var openAccountFreezeInfo: (() -> Void)?
@@ -1914,6 +1918,8 @@ public final class ChatListNode: ListViewImpl {
                 return
             }
             self.openWebApp?(user)
+        }, startBotSession: { [weak self] peerId in
+            self?.startBotSession?(peerId)
         }, openPhotoSetup: { [weak self] in
             guard let self else {
                 return
