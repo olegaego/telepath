@@ -21,6 +21,8 @@ swift_library(
         "//submodules/AppBundle:AppBundle",
         "//submodules/AgentgramCore",
         "//submodules/TelegramUI/Components/ThreadedBotSessions",
+        "//submodules/TelegramUI/Components/Superfolders",
+        "//submodules/ChatListUI:ChatListUI",
     ],
     visibility = [
         "//visibility:public",

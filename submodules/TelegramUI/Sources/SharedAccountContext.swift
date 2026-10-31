@@ -1794,13 +1794,13 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         if let rootController = self.mainWindow?.viewController as? TelegramRootController {
             if let tabsController = rootController.viewControllers.first as? TabBarController {
                 for controller in tabsController.controllers {
-                    if let controller = controller as? ChatListController {
+                    if let controller = controller as? ChatListController, (controller as? ChatListControllerImpl)?.isSuperfolder != true {
                         chatsBadge = controller.tabBarItem.badgeValue
                     }
                 }
                 
                 if let chatListController = chatListController {
-                    if let index = tabsController.controllers.firstIndex(where: { $0 is ChatListController }) {
+                    if let index = tabsController.controllers.firstIndex(where: { ($0 as? ChatListController) != nil && ($0 as? ChatListControllerImpl)?.isSuperfolder != true }) {
                         var controllers = tabsController.controllers
                         controllers[index] = chatListController
                         tabsController.setControllers(controllers, selectedIndex: index)

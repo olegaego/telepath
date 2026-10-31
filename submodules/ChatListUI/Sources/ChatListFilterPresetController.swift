@@ -3,6 +3,7 @@ import UIKit
 import Display
 import SwiftSignalKit
 import TelegramCore
+import Superfolders
 import TelegramPresentationData
 import PresentationDataUtils
 import ItemListUI
@@ -12,6 +13,7 @@ import ItemListPeerItem
 import ItemListPeerActionItem
 import AvatarNode
 import ChatListFilterSettingsHeaderItem
+import TextFormat
 import PremiumUI
 import InviteLinksUI
 import QrCodeUI
@@ -33,6 +35,11 @@ private enum FilterSection: Int32, Hashable {
 
 private final class ChatListFilterPresetControllerArguments {
     let context: AccountContext
+    // The superfolder's screen: its icon picker, the move switch, deleting it, its header text.
+    var openSuperfolderIcon: () -> Void = {}
+    var toggleSuperfolderMove: (Bool) -> Void = { _ in }
+    var deleteSuperfolder: () -> Void = {}
+    var superfolderHeaderText: String = ""
     let updateState: ((ChatListFilterPresetControllerState) -> ChatListFilterPresetControllerState) -> Void
     let updateName: (ChatFolderTitle) -> Void
     let toggleNameInputMode: () -> Void
@@ -111,6 +118,9 @@ private enum ChatListFilterPresetControllerSection: Int32 {
     case excludePeers
     case inviteLinks
     case tagColor
+    case superfolderIcon
+    case superfolderMove
+    case superfolderDelete
 }
 
 private enum ChatListFilterPresetEntryStableId: Hashable {
@@ -252,6 +262,11 @@ private enum ChatListFilterPresetEntry: ItemListNodeEntry {
     case tagColorHeader(name: ChatFolderTitle, color: PeerNameColors.Colors?, isPremium: Bool)
     case tagColor(colors: PeerNameColors, currentColor: PeerNameColor?, isPremium: Bool)
     case tagColorFooter
+    case superfolderIconHeader
+    case superfolderIcon(String, UIImage?)
+    case superfolderMove(Bool)
+    case superfolderMoveFooter
+    case superfolderDelete
     
     var section: ItemListSectionId {
         switch self {
@@ -267,6 +282,12 @@ private enum ChatListFilterPresetEntry: ItemListNodeEntry {
             return ChatListFilterPresetControllerSection.inviteLinks.rawValue
         case .tagColorHeader, .tagColor, .tagColorFooter:
             return ChatListFilterPresetControllerSection.tagColor.rawValue
+        case .superfolderIconHeader, .superfolderIcon:
+            return ChatListFilterPresetControllerSection.superfolderIcon.rawValue
+        case .superfolderMove, .superfolderMoveFooter:
+            return ChatListFilterPresetControllerSection.superfolderMove.rawValue
+        case .superfolderDelete:
+            return ChatListFilterPresetControllerSection.superfolderDelete.rawValue
         }
     }
     
@@ -316,6 +337,16 @@ private enum ChatListFilterPresetEntry: ItemListNodeEntry {
             return .index(15)
         case .tagColorFooter:
             return .index(16)
+        case .superfolderIconHeader:
+            return .index(17)
+        case .superfolderIcon:
+            return .index(18)
+        case .superfolderMove:
+            return .index(19)
+        case .superfolderMoveFooter:
+            return .index(20)
+        case .superfolderDelete:
+            return .index(21)
         }
     }
     
@@ -365,6 +396,16 @@ private enum ChatListFilterPresetEntry: ItemListNodeEntry {
             return ChatListFilterPresetEntrySortId(section: 12, index: index)
         case .inviteLinkInfo:
             return ChatListFilterPresetEntrySortId(section: 13, index: 0)
+        case .superfolderIconHeader:
+            return ChatListFilterPresetEntrySortId(section: 1, index: 3)
+        case .superfolderIcon:
+            return ChatListFilterPresetEntrySortId(section: 1, index: 4)
+        case .superfolderMove:
+            return ChatListFilterPresetEntrySortId(section: 1, index: 5)
+        case .superfolderMoveFooter:
+            return ChatListFilterPresetEntrySortId(section: 1, index: 6)
+        case .superfolderDelete:
+            return ChatListFilterPresetEntrySortId(section: 20, index: 0)
         }
     }
     
@@ -376,7 +417,7 @@ private enum ChatListFilterPresetEntry: ItemListNodeEntry {
         let arguments = arguments as! ChatListFilterPresetControllerArguments
         switch self {
         case .screenHeader:
-            return ChatListFilterSettingsHeaderItem(context: arguments.context, theme: presentationData.theme, text: "", animation: .newFolder, sectionId: self.section)
+            return ChatListFilterSettingsHeaderItem(context: arguments.context, theme: presentationData.theme, text: arguments.superfolderHeaderText, animation: arguments.superfolderHeaderText.isEmpty ? .newFolder : .folders, sectionId: self.section)
         case let .nameHeader(title, enableAnimations):
             var actionText: String?
             if let enableAnimations {
@@ -543,6 +584,22 @@ private enum ChatListFilterPresetEntry: ItemListNodeEntry {
             })
         case let .inviteLinkInfo(text):
             return ItemListTextItem(presentationData: presentationData, text: .markdown(text), sectionId: self.section)
+        case .superfolderIconHeader:
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: Superfolders.text(.iconHeader, languageCode: presentationData.strings.primaryComponent.languageCode), sectionId: self.section)
+        case let .superfolderIcon(title, image):
+            return ItemListPeerActionItem(presentationData: presentationData, systemStyle: .glass, icon: image, title: title, sectionId: self.section, height: .generic, editing: false, action: {
+                arguments.openSuperfolderIcon()
+            })
+        case let .superfolderMove(value):
+            return ItemListSwitchItem(presentationData: presentationData, systemStyle: .glass, title: Superfolders.text(.removeFromChats, languageCode: presentationData.strings.primaryComponent.languageCode), value: value, sectionId: self.section, style: .blocks, updated: { value in
+                arguments.toggleSuperfolderMove(value)
+            })
+        case .superfolderDelete:
+            return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: Superfolders.text(.delete, languageCode: presentationData.strings.primaryComponent.languageCode), kind: .destructive, alignment: .natural, sectionId: self.section, style: .blocks, action: {
+                arguments.deleteSuperfolder()
+            })
+        case .superfolderMoveFooter:
+            return ItemListTextItem(presentationData: presentationData, text: .plain(Superfolders.text(.removeFromChatsInfo, languageCode: presentationData.strings.primaryComponent.languageCode)), sectionId: self.section)
         }
     }
 }
@@ -552,6 +609,8 @@ private struct ChatListFilterPresetControllerState: Equatable {
     var name: ChatFolderTitle
     var changedName: Bool
     var nameInputMode: ListComposePollOptionComponent.InputMode = .keyboard
+    // The emoji panel is open to pick the superfolder's icon.
+    var pickingSuperfolderIcon: Bool = false
     var color: PeerNameColor?
     var colorUpdated: Bool = false
     var includeCategories: ChatListFilterPeerCategories
@@ -593,15 +652,23 @@ private struct ChatListFilterPresetControllerState: Equatable {
     }
 }
 
-private func chatListFilterPresetControllerEntries(context: AccountContext, presentationData: PresentationData, isNewFilter: Bool, currentPreset: ChatListFilter?, state: ChatListFilterPresetControllerState, includePeers: [EngineRenderedPeer], excludePeers: [EngineRenderedPeer], isPremium: Bool, limit: Int32, inviteLinks: [ExportedChatFolderLink]?, hadLinks: Bool) -> [ChatListFilterPresetEntry] {
+private func chatListFilterPresetControllerEntries(context: AccountContext, presentationData: PresentationData, isNewFilter: Bool, currentPreset: ChatListFilter?, state: ChatListFilterPresetControllerState, includePeers: [EngineRenderedPeer], excludePeers: [EngineRenderedPeer], isPremium: Bool, limit: Int32, inviteLinks: [ExportedChatFolderLink]?, hadLinks: Bool, isSuperfolder: Bool = false, superfolderSettings: SuperfolderSettings = .default, superfolderIconImage: UIImage? = nil, isSuperfolderFolder: Bool = false) -> [ChatListFilterPresetEntry] {
     var entries: [ChatListFilterPresetEntry] = []
     
-    if isNewFilter {
+    if isNewFilter || isSuperfolder {
         entries.append(.screenHeader)
     }
     
-    entries.append(.nameHeader(title: presentationData.strings.ChatListFolder_NameSectionHeader, enableAnimations: state.name.entities.isEmpty ? nil : state.name.enableAnimations))
-    entries.append(.name(placeholder: presentationData.strings.ChatListFolder_NamePlaceholder, value: state.name.rawAttributedString, inputMode: state.nameInputMode, enableAnimations: state.name.enableAnimations))
+    // A superfolder's name is plain text, without the emoji button.
+    entries.append(.nameHeader(title: isSuperfolder ? Superfolders.text(.nameHeader, languageCode: presentationData.strings.primaryComponent.languageCode) : presentationData.strings.ChatListFolder_NameSectionHeader, enableAnimations: state.name.entities.isEmpty ? nil : state.name.enableAnimations))
+    entries.append(.name(placeholder: isSuperfolder ? Superfolders.text(.namePlaceholder, languageCode: presentationData.strings.primaryComponent.languageCode) : presentationData.strings.ChatListFolder_NamePlaceholder, value: state.name.rawAttributedString, inputMode: isSuperfolder ? nil : state.nameInputMode, enableAnimations: state.name.enableAnimations))
+    // Right under the name: the superfolder's icon, then whether its chats leave «Chats».
+    if isSuperfolder {
+        entries.append(.superfolderIconHeader)
+        entries.append(.superfolderIcon(superfolderIconImage == nil ? Superfolders.text(.chooseIcon, languageCode: presentationData.strings.primaryComponent.languageCode) : Superfolders.text(.changeIcon, languageCode: presentationData.strings.primaryComponent.languageCode), superfolderIconImage))
+        entries.append(.superfolderMove(!superfolderSettings.keepsChatsInChatList))
+        entries.append(.superfolderMoveFooter)
+    }
     
     entries.append(.includePeersHeader(presentationData.strings.ChatListFolder_IncludedSectionHeader))
     if includePeers.count < limit {
@@ -630,7 +697,15 @@ private func chatListFilterPresetControllerEntries(context: AccountContext, pres
         }
     }
     
-    entries.append(.includePeerInfo(presentationData.strings.ChatListFolder_IncludeSectionInfo))
+    entries.append(.includePeerInfo(isSuperfolder ? (superfolderSettings.keepsChatsInChatList ? Superfolders.text(.includeInfoKeep, languageCode: presentationData.strings.primaryComponent.languageCode) : Superfolders.text(.includeInfoMove, languageCode: presentationData.strings.primaryComponent.languageCode)) : presentationData.strings.ChatListFolder_IncludeSectionInfo))
+    
+    // A superfolder is its name, icon and chats: no exclusions, colour or links.
+    if isSuperfolder {
+        if superfolderSettings.isCreated {
+            entries.append(.superfolderDelete)
+        }
+        return entries
+    }
     
     if let currentPreset, let data = currentPreset.data, data.isShared {
     } else {
@@ -686,6 +761,11 @@ private func chatListFilterPresetControllerEntries(context: AccountContext, pres
     entries.append(.tagColorHeader(name: state.name, color: resolvedColor, isPremium: isPremium))
     entries.append(.tagColor(colors: context.peerNameColors, currentColor: tagColor, isPremium: isPremium))
     entries.append(.tagColorFooter)
+    
+    // A folder of the superfolder is kept on the device and can't be shared by a link.
+    if isSuperfolderFolder {
+        return entries
+    }
     
     var hasLinks = false
     if let inviteLinks, !inviteLinks.isEmpty {
@@ -1083,6 +1163,9 @@ private final class ChatListFilterPresetController: ItemListController {
     var titleItemNode: (() -> ItemListFilterTitleInputItemNode?)?
     
     var currentInputMode: ListComposePollOptionComponent.InputMode?
+    // While picking the superfolder's icon an emoji goes to it, not into the name.
+    var superfolderPickingIcon = false
+    var superfolderIconPicked: ((NSAttributedString?) -> Void)?
     
     private var inputMediaNodeData: ChatEntityKeyboardInputNode.InputData?
     private var inputMediaNodeDataDisposable: Disposable?
@@ -1144,6 +1227,10 @@ private final class ChatListFilterPresetController: ItemListController {
                 guard let self else {
                     return
                 }
+                if self.superfolderPickingIcon {
+                    self.superfolderIconPicked?(nil)
+                    return
+                }
                 self.currentInputMode = .keyboard
                 self.update(transition: .animated(duration: 0.4, curve: .spring))
             },
@@ -1151,6 +1238,10 @@ private final class ChatListFilterPresetController: ItemListController {
             },
             insertText: { [weak self] text in
                 guard let self else {
+                    return
+                }
+                if self.superfolderPickingIcon {
+                    self.superfolderIconPicked?(text)
                     return
                 }
                 guard let titleItemNode = self.titleItemNode?() else {
@@ -1398,7 +1489,7 @@ private final class ChatListFilterPresetController: ItemListController {
     }
 }
 
-public func chatListFilterPresetController(context: AccountContext, currentPreset initialPreset: ChatListFilter?, updated: @escaping ([ChatListFilter]) -> Void) -> ViewController {
+public func chatListFilterPresetController(context: AccountContext, currentPreset initialPreset: ChatListFilter?, isSuperfolder: Bool = false, superfolderFolderId: Int32? = nil, updated: @escaping ([ChatListFilter]) -> Void) -> ViewController {
     let initialName: ChatFolderTitle
     if let initialPreset {
         initialName = initialPreset.title
@@ -1421,7 +1512,9 @@ public func chatListFilterPresetController(context: AccountContext, currentPrese
     initialState.colorUpdated = true
     
     let updatedCurrentPreset: Signal<ChatListFilter?, NoError>
-    if let initialPreset {
+    if isSuperfolder || superfolderFolderId != nil {
+        updatedCurrentPreset = .single(initialPreset)
+    } else if let initialPreset {
         updatedCurrentPreset = context.engine.peers.updatedChatListFilters()
         |> map { filters -> ChatListFilter? in
             return filters.first(where: { $0.id == initialPreset.id })
@@ -1468,7 +1561,8 @@ public func chatListFilterPresetController(context: AccountContext, currentPrese
         })
         withController?({ c in
             let state = stateValue.with({ $0 })
-            c.currentInputMode = state.nameInputMode
+            c.currentInputMode = state.pickingSuperfolderIcon ? .emoji : state.nameInputMode
+            c.superfolderPickingIcon = state.pickingSuperfolderIcon
             c.update(transition: .animated(duration: 0.5, curve: .spring))
         })
     }
@@ -2002,11 +2096,77 @@ public func chatListFilterPresetController(context: AccountContext, currentPrese
             pushControllerImpl?(controller)
         }
     )
+    if isSuperfolder {
+        arguments.superfolderHeaderText = Superfolders.text(.info, languageCode: context.sharedContext.currentPresentationData.with { $0 }.strings.primaryComponent.languageCode)
+    }
+    arguments.deleteSuperfolder = {
+        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+        let actionSheet = ActionSheetController(presentationData: presentationData)
+        actionSheet.setItemGroups([
+            ActionSheetItemGroup(items: [
+                ActionSheetTextItem(title: Superfolders.text(.deleteConfirmation, languageCode: presentationData.strings.primaryComponent.languageCode)),
+                ActionSheetButtonItem(title: Superfolders.text(.delete, languageCode: presentationData.strings.primaryComponent.languageCode), color: .destructive, action: { [weak actionSheet] in
+                    actionSheet?.dismissAnimated()
+                    Superfolders.update(engine: context.engine, { settings in
+                        settings = .default
+                    })
+                    dismissImpl?()
+                })
+            ]),
+            ActionSheetItemGroup(items: [ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: { [weak actionSheet] in
+                actionSheet?.dismissAnimated()
+            })])
+        ])
+        presentControllerImpl?(actionSheet, nil)
+    }
+    arguments.toggleSuperfolderMove = { value in
+        Superfolders.update(engine: context.engine, { settings in
+            settings.keepsChatsInChatList = !value
+        })
+    }
+    // The emoji panel of the name field picks the superfolder's icon.
+    arguments.openSuperfolderIcon = {
+        clearFocusImpl?()
+        updateState { state in
+            var state = state
+            state.pickingSuperfolderIcon = true
+            return state
+        }
+    }
         
     var attemptNavigationImpl: ((@escaping (Bool) -> Void) -> Void)?
     applyImpl = { waitForSync, completed in
         let _ = (updatedCurrentPreset |> take(1) |> deliverOnMainQueue).start(next: { currentPreset in
             let state = stateValue.with { $0 }
+            
+            // The superfolder and its folders are kept in the superfolder's settings.
+            if let superfolderFolderId {
+                Superfolders.update(engine: context.engine, { settings in
+                    let id = superfolderFolderId == 0 ? Superfolders.nextFolderId(settings: settings) : superfolderFolderId
+                    let pinnedPeerIds = settings.folders.first(where: { $0.id == id })?.pinnedPeerIds ?? []
+                    let folder = SuperfolderSettings.Folder(id: id, title: state.name.text, includePeerIds: state.additionallyIncludePeers.map { $0.toInt64() }, pinnedPeerIds: pinnedPeerIds, excludePeerIds: state.additionallyExcludePeers.map { $0.toInt64() }, categories: state.includeCategories.rawValue, excludeMuted: state.excludeMuted, excludeRead: state.excludeRead, excludeArchived: state.excludeArchived, color: state.color?.rawValue)
+                    if let index = settings.folders.firstIndex(where: { $0.id == id }) {
+                        settings.folders[index] = folder
+                    } else {
+                        settings.folders.append(folder)
+                    }
+                })
+                completed()
+                return
+            }
+            if isSuperfolder {
+                Superfolders.update(engine: context.engine, { settings in
+                    let title = state.name.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !title.isEmpty {
+                        settings.title = title
+                    }
+                    settings.isCreated = true
+                    settings.includePeerIds = state.additionallyIncludePeers.map { $0.toInt64() }
+                    settings.categories = state.includeCategories.rawValue
+                })
+                completed()
+                return
+            }
             
             var includePeers = ChatListFilterIncludePeers()
             includePeers.setPeers(state.additionallyIncludePeers)
@@ -2068,6 +2228,19 @@ public func chatListFilterPresetController(context: AccountContext, currentPrese
     var previousSharedLinks: [ExportedChatFolderLink]?
     var hadLinks: Bool = false
     
+    // The superfolder's settings and its icon, for its own screen.
+    let superfolderState: Signal<(SuperfolderSettings, UIImage?), NoError>
+    if isSuperfolder {
+        superfolderState = Superfolders.settings(engine: context.engine)
+        |> mapToSignal { settings -> Signal<(SuperfolderSettings, UIImage?), NoError> in
+            return Superfolders.iconImage(context: context, icon: settings.icon, size: CGSize(width: 28.0, height: 28.0))
+            |> map { image in
+                return (settings, image)
+            }
+        }
+    } else {
+        superfolderState = .single((.default, nil))
+    }
     let signal = combineLatest(queue: .mainQueue(),
         context.sharedContext.presentationData,
         stateWithPeers,
@@ -2076,10 +2249,12 @@ public func chatListFilterPresetController(context: AccountContext, currentPrese
             TelegramEngine.EngineData.Item.Configuration.UserLimits(isPremium: true)
         ),
         sharedLinks.get(),
-        updatedCurrentPreset
+        updatedCurrentPreset,
+        superfolderState
     )
     |> deliverOnMainQueue
-    |> map { presentationData, stateWithPeers, peerView, premiumLimits, sharedLinks, currentPreset -> (ItemListControllerState, (ItemListNodeState, Any)) in
+    |> map { presentationData, stateWithPeers, peerView, premiumLimits, sharedLinks, currentPreset, superfolderState -> (ItemListControllerState, (ItemListNodeState, Any)) in
+        let (superfolderSettings, superfolderIconImage) = superfolderState
         var presentationData = presentationData
 
         let updatedTheme = presentationData.theme.withModalBlocksBackground()
@@ -2122,8 +2297,8 @@ public func chatListFilterPresetController(context: AccountContext, currentPrese
             hadLinks = true
         }
         
-        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(currentPreset != nil ? presentationData.strings.ChatListFolder_TitleEdit : presentationData.strings.ChatListFolder_TitleCreate), leftNavigationButton: leftNavigationButton, rightNavigationButton: rightNavigationButton, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back), animateChanges: false)
-        let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: chatListFilterPresetControllerEntries(context: context, presentationData: presentationData, isNewFilter: currentPreset == nil, currentPreset: currentPreset, state: state, includePeers: includePeers, excludePeers: excludePeers, isPremium: isPremium, limit: premiumLimits.maxFolderChatsCount, inviteLinks: sharedLinks, hadLinks: hadLinks), style: .blocks, emptyStateItem: nil, crossfadeState: crossfadeAnimation, animateChanges: !skipStateAnimation)
+        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(isSuperfolder ? (superfolderSettings.isCreated ? (superfolderSettings.title.isEmpty ? Superfolders.text(.defaultTitle, languageCode: presentationData.strings.primaryComponent.languageCode) : superfolderSettings.title) : Superfolders.text(.newTitle, languageCode: presentationData.strings.primaryComponent.languageCode)) : (currentPreset != nil ? presentationData.strings.ChatListFolder_TitleEdit : presentationData.strings.ChatListFolder_TitleCreate)), leftNavigationButton: isSuperfolder ? nil : leftNavigationButton, rightNavigationButton: rightNavigationButton, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back), animateChanges: false)
+        let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: chatListFilterPresetControllerEntries(context: context, presentationData: presentationData, isNewFilter: currentPreset == nil, currentPreset: currentPreset, state: state, includePeers: includePeers, excludePeers: excludePeers, isPremium: isPremium, limit: premiumLimits.maxFolderChatsCount, inviteLinks: sharedLinks, hadLinks: hadLinks, isSuperfolder: isSuperfolder, superfolderSettings: superfolderSettings, superfolderIconImage: superfolderIconImage, isSuperfolderFolder: superfolderFolderId != nil), style: .blocks, emptyStateItem: nil, crossfadeState: crossfadeAnimation, animateChanges: !skipStateAnimation)
         skipStateAnimation = false
         
         return (controllerState, (listState, arguments))
@@ -2133,7 +2308,8 @@ public func chatListFilterPresetController(context: AccountContext, currentPrese
     }
     
     let controller = ChatListFilterPresetController(context: context, state: signal)
-    controller.navigationPresentation = .modal
+    // The superfolder opens as a page, like the folders settings.
+    controller.navigationPresentation = isSuperfolder ? .default : .modal
     presentControllerImpl = { [weak controller] c, d in
         controller?.present(c, in: .window(.root), with: d)
     }
@@ -2164,6 +2340,25 @@ public func chatListFilterPresetController(context: AccountContext, currentPrese
             return
         }
         f(controller)
+    }
+    controller.superfolderIconPicked = { text in
+        if let text, text.length != 0 {
+            var icon = SuperfolderSettings.Icon(customEmojiFileId: nil, emoji: text.string)
+            text.enumerateAttribute(ChatTextInputAttributes.customEmoji, in: NSRange(location: 0, length: text.length), options: [], using: { value, _, stop in
+                if let value = value as? ChatTextInputTextCustomEmojiAttribute {
+                    icon = SuperfolderSettings.Icon(customEmojiFileId: value.fileId, emoji: nil)
+                    stop.pointee = true
+                }
+            })
+            Superfolders.update(engine: context.engine, { settings in
+                settings.icon = icon
+            })
+        }
+        updateState { state in
+            var state = state
+            state.pickingSuperfolderIcon = false
+            return state
+        }
     }
     controller.titleItemNode = { [weak controller] in
         var foundItemNode: ItemListFilterTitleInputItemNode?
@@ -2422,4 +2617,24 @@ private final class ContextControllerContentSourceImpl: ContextControllerContent
     
     func animatedIn() {
     }
+}
+
+// The superfolder's own screen: its name, icon and chats.
+public func superfolderController(context: AccountContext) -> ViewController {
+    let settings = Superfolders.currentSettings(accountPeerId: context.account.peerId)
+    return chatListFilterPresetController(context: context, currentPreset: Superfolders.filter(settings: settings), isSuperfolder: true, updated: { _ in })
+}
+
+// The chat picker of a folder, straight for the superfolder: the chats and types of chats go to it.
+func superfolderAddChatsController(context: AccountContext) -> ViewController {
+    let settings = Superfolders.currentSettings(accountPeerId: context.account.peerId)
+    return internalChatListFilterAddChatsController(context: context, filter: Superfolders.filter(settings: settings), allFilters: [], applyAutomatically: false, limit: 1000, premiumLimit: 1000, isPremium: true, updated: { filter in
+        guard case let .filter(_, _, _, data) = filter else {
+            return
+        }
+        Superfolders.update(engine: context.engine, { settings in
+            settings.includePeerIds = data.includePeers.peers.map { $0.toInt64() }
+            settings.categories = data.categories.rawValue
+        })
+    }, presentUndo: { _ in })
 }
