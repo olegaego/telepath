@@ -37,7 +37,10 @@ private struct ComputersTexts {
     var done: String { ru ? "Подключено" : "Connected" }
     func doneText(_ bot: String, _ computer: String) -> String { ru ? "@\(bot) теперь работает на «\(computer)». Напиши ему." : "@\(bot) now works on \(computer). Write to it." }
     var failed: String { ru ? "Не вышло подключить" : "Could not connect" }
-    var tokenFailed: String { ru ? "Telegram не отдал токен этого бота." : "Telegram did not give this bot's token." }
+    func pasteTitle(_ bot: String) -> String { ru ? "Токен \(bot)" : "\(bot) Token" }
+    func pasteText(_ bot: String) -> String { ru ? "Открой @BotFather, отправь /token, выбери \(bot) и скопируй токен. Потом вернись сюда и нажми «Вставить». Токен уйдёт только на этот компьютер, зашифрованным." : "Open @BotFather, send /token, pick \(bot) and copy the token. Then come back and tap Paste. The token goes only to this computer, encrypted." }
+    var paste: String { ru ? "Вставить" : "Paste" }
+    func wrongToken(_ bot: String) -> String { ru ? "В буфере нет токена \(bot). Скопируй его у @BotFather и нажми «Вставить» ещё раз." : "The clipboard has no token of \(bot). Copy it in @BotFather and tap Paste again." }
 }
 
 struct NearbyComputer: Equatable {
@@ -238,39 +241,32 @@ func agentgramComputersController(context: AccountContext) -> ViewController {
         let fail: (String) -> Void = { text in
             presentImpl?(textAlertController(context: context, title: texts.failed, text: text, actions: [TextAlertAction(type: .defaultAction, title: "OK", action: {})]))
         }
-        let send: (EnginePeer, String) -> Void = { bot, engine in
-            let _ = (context.engine.peers.agentgramBotToken(botId: bot.id)
-            |> deliverOnMainQueue).start(next: { token in
-                guard let token else {
-                    fail(texts.tokenFailed)
-                    return
+        let send: (String, String) -> Void = { token, engine in
+            let payload: [String: Any] = ["bot_token": token, "owner_id": context.account.peerId.id._internalGetInt64Value(), "engine": engine]
+            guard let plain = try? JSONSerialization.data(withJSONObject: payload), let sealed = sealForComputer(plain, publicKey: computer.publicKey) else {
+                fail("")
+                return
+            }
+            postToComputer(computer.endpoint, path: "/pair", body: base64UrlEncode(sealed), completion: { status, body in
+                if status == 200, let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any], let botName = json["bot"] as? String {
+                    presentImpl?(textAlertController(context: context, title: texts.done, text: texts.doneText(botName, computer.name), actions: [TextAlertAction(type: .defaultAction, title: "OK", action: {})]))
+                } else {
+                    fail(String(decoding: body, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
                 }
-                let payload: [String: Any] = ["bot_token": token, "owner_id": context.account.peerId.id._internalGetInt64Value(), "engine": engine]
-                guard let plain = try? JSONSerialization.data(withJSONObject: payload), let sealed = sealForComputer(plain, publicKey: computer.publicKey) else {
-                    fail("")
-                    return
-                }
-                postToComputer(computer.endpoint, path: "/pair", body: base64UrlEncode(sealed), completion: { status, body in
-                    if status == 200, let json = try? JSONSerialization.jsonObject(with: body) as? [String: Any], let botName = json["bot"] as? String {
-                        presentImpl?(textAlertController(context: context, title: texts.done, text: texts.doneText(botName, computer.name), actions: [TextAlertAction(type: .defaultAction, title: "OK", action: {})]))
-                    } else {
-                        fail(String(decoding: body, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
-                    }
-                })
             })
         }
-        let pickEngine: (EnginePeer) -> Void = { bot in
+        let pickEngine: (String) -> Void = { token in
             let sheet = ActionSheetController(presentationData: presentationData)
             sheet.setItemGroups([
                 ActionSheetItemGroup(items: [
                     ActionSheetTextItem(title: texts.whichEngine),
                     ActionSheetButtonItem(title: "Claude Code", action: { [weak sheet] in
                         sheet?.dismissAnimated()
-                        send(bot, "claude")
+                        send(token, "claude")
                     }),
                     ActionSheetButtonItem(title: "Codex", action: { [weak sheet] in
                         sheet?.dismissAnimated()
-                        send(bot, "codex")
+                        send(token, "codex")
                     })
                 ]),
                 ActionSheetItemGroup(items: [ActionSheetButtonItem(title: texts.cancel, color: .accent, font: .bold, action: { [weak sheet] in
@@ -278,6 +274,30 @@ func agentgramComputersController(context: AccountContext) -> ViewController {
                 })])
             ])
             presentImpl?(sheet)
+        }
+        // The token is pasted by the owner, from @BotFather; it starts with the bot's id, so a wrong one is caught here
+        var askTokenImpl: ((EnginePeer, String) -> Void)?
+        let askToken: (EnginePeer, String) -> Void = { bot, title in
+            askTokenImpl?(bot, title)
+        }
+        askTokenImpl = { bot, title in
+            presentImpl?(textAlertController(context: context, title: texts.pasteTitle(title), text: texts.pasteText(title), actions: [
+                TextAlertAction(type: .genericAction, title: texts.cancel, action: {}),
+                TextAlertAction(type: .defaultAction, title: texts.paste, action: {
+                    let clip = UIPasteboard.general.string ?? ""
+                    let botId = "\(bot.id.id._internalGetInt64Value())"
+                    if let range = clip.range(of: "[0-9]{6,12}:[A-Za-z0-9_-]{30,}", options: .regularExpression), clip[range].hasPrefix(botId + ":") {
+                        pickEngine(String(clip[range]))
+                    } else {
+                        presentImpl?(textAlertController(context: context, title: texts.pasteTitle(title), text: texts.wrongToken(title), actions: [
+                            TextAlertAction(type: .genericAction, title: texts.cancel, action: {}),
+                            TextAlertAction(type: .defaultAction, title: texts.paste, action: {
+                                askTokenImpl?(bot, title)
+                            })
+                        ]))
+                    }
+                })
+            ]))
         }
         let pickBot: () -> Void = {
             let _ = (context.engine.peers.agentgramOwnedBots()
@@ -292,7 +312,7 @@ func agentgramComputersController(context: AccountContext) -> ViewController {
                     let title = bot.addressName.flatMap { "@" + $0 } ?? bot.compactDisplayTitle
                     items.append(ActionSheetButtonItem(title: title, action: { [weak sheet] in
                         sheet?.dismissAnimated()
-                        pickEngine(bot)
+                        askToken(bot, title)
                     }))
                 }
                 sheet.setItemGroups([
