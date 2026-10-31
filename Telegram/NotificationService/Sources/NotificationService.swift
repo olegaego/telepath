@@ -1006,7 +1006,7 @@ private final class NotificationServiceHandler {
                     guard let notificationsKey = notificationsKey else {
                         Logger.shared.log("NotificationService \(episode)", "Didn't receive decryption key")
 
-                        let content = NotificationContent(isLockedMessage: nil)
+                        let content = agentgramDebugContent("no key") // Agentgram: debug builds say where it stopped
                         updateCurrentContent(content)
                         completed()
 
@@ -1015,7 +1015,7 @@ private final class NotificationServiceHandler {
                     guard let decryptedPayload = decryptedNotificationPayload(key: notificationsKey, data: payloadData) else {
                         Logger.shared.log("NotificationService \(episode)", "Couldn't decrypt payload")
 
-                        let content = NotificationContent(isLockedMessage: nil)
+                        let content = agentgramDebugContent("decrypt") // Agentgram: debug builds say where it stopped
                         updateCurrentContent(content)
                         completed()
 
@@ -1024,7 +1024,7 @@ private final class NotificationServiceHandler {
                     guard let payloadJson = try? JSONSerialization.jsonObject(with: decryptedPayload, options: []) as? [String: Any] else {
                         Logger.shared.log("NotificationService \(episode)", "Couldn't process payload as JSON")
 
-                        let content = NotificationContent(isLockedMessage: nil)
+                        let content = agentgramDebugContent("json") // Agentgram: debug builds say where it stopped
                         updateCurrentContent(content)
                         completed()
 
@@ -3191,4 +3191,14 @@ extension Customoji {
         }
         return sizes
     }
+}
+
+// Agentgram: in a debug build a push that could not be opened says where it stopped, instead of an empty one
+private func agentgramDebugContent(_ reason: String) -> NotificationContent {
+    var content = NotificationContent(isLockedMessage: nil)
+    #if DEBUG
+    content.title = "Agentgram"
+    content.body = "push: " + reason
+    #endif
+    return content
 }
