@@ -241,6 +241,7 @@ struct ScrolledToMessageId: Equatable {
 }
 
 public final class ChatControllerImpl: TelegramBaseController, ChatController, GalleryHiddenMediaTarget, UIDropInteractionDelegate {    
+    var agentgramVoiceChecked = false // Agentgram: the voice of this send already has its text
     var validLayout: ContainerViewLayout?
     
     public weak var parentController: ViewController?
@@ -9192,6 +9193,20 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
         }
         
         guard let peerId = self.chatLocation.peerId else {
+            return
+        }
+
+        // Agentgram: a voice message to an agent's bot gets its text first, recognized on the phone (AgentgramVoice.swift)
+        if !self.agentgramVoiceChecked, agentgramHasVoiceWithoutText(messages) {
+            let _ = (agentgramVoiceCaptions(context: self.context, peerId: peerId, messages: messages)
+            |> deliverOnMainQueue).startStandalone(next: { [weak self] messages in
+                guard let self else {
+                    return
+                }
+                self.agentgramVoiceChecked = true
+                self.sendMessages(messages, media: media, postpone: postpone, commit: commit)
+                self.agentgramVoiceChecked = false
+            })
             return
         }
 

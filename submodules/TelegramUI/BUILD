@@ -66,6 +66,7 @@ swift_library(
     deps = [
         "//submodules/TelegramUI/Components/ThreadedBotSessions",
         "//submodules/AgentgramCore",
+        "//submodules/AgentgramSettingsUI",
         "//submodules/TelegramUI/Components/Superfolders",
         "//submodules/CrashReporting:CrashReporting",
         "//third-party/recaptcha:RecaptchaEnterprise",

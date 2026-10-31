@@ -238,6 +238,11 @@ enum ConnectedComputers {
     }
 }
 
+// Whether a bot is the bot of a computer connected from this phone (its voice messages get their text, see AgentgramVoice)
+public func agentgramIsAgentBot(context: AccountContext, username: String) -> Bool {
+    return ConnectedComputers.all(context).contains { $0.bot.lowercased() == username.lowercased() }
+}
+
 // A request to a connected computer: the phone's secret and the time, sealed with the computer's key
 func askComputer(_ endpoint: NWEndpoint, _ computer: ConnectedComputer, path: String, completion: @escaping ([String: Any]?) -> Void) {
     let request: [String: Any] = ["secret": computer.secret, "time": Int64(Date().timeIntervalSince1970)]
@@ -476,7 +481,7 @@ private enum ComputerEntry: ItemListNodeEntry {
 }
 
 func agentgramComputerController(context: AccountContext, computer: ConnectedComputer, browser: ComputersBrowser) -> ViewController {
-    let info = Promise<[String: Any]?>(nil)
+    let infoPromise = Promise<[String: Any]?>(nil)
     var asked = false
     var presentImpl: ((ViewController) -> Void)?
     var popImpl: (() -> Void)?
@@ -510,14 +515,14 @@ func agentgramComputerController(context: AccountContext, computer: ConnectedCom
         }
     })
 
-    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, browser.computers.get(), info.get())
+    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, browser.computers.get(), infoPromise.get())
     |> map { presentationData, found, info -> (ItemListControllerState, (ItemListNodeState, Any)) in
         let texts = ComputersTexts(presentationData.strings)
         let nearby = found.first(where: { $0.publicKey == computer.publicKey })
         if let nearby, !asked {
             asked = true
             askComputer(nearby.endpoint, computer, path: "/info", completion: { result in
-                info.set(.single(result))
+                infoPromise.set(.single(result))
             })
         }
         let engine = computer.engine == "codex" ? "Codex" : "Claude Code"
