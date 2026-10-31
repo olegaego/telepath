@@ -1,0 +1,30 @@
+import Foundation
+
+// Agentgram: which tabs are at the bottom («Agentgram → Tabs»). Chats and Settings are always there; Contacts and
+// Calls are off unless turned on (both screens still open from search, New Message and the profile).
+public enum AgentgramTabs {
+    public static let didChange = Notification.Name("AgentgramTabsDidChange")
+
+    private static let contactsKey = "agentgram.tabs.contacts"
+    private static let callsKey = "agentgram.tabs.calls"
+
+    public static var showsContacts: Bool {
+        get {
+            return UserDefaults.standard.bool(forKey: contactsKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: contactsKey)
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
+    }
+
+    public static var showsCalls: Bool {
+        get {
+            return UserDefaults.standard.bool(forKey: callsKey)
+        }
+        set {
+            UserDefaults.standard.set(newValue, forKey: callsKey)
+            NotificationCenter.default.post(name: didChange, object: nil)
+        }
+    }
+}

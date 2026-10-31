@@ -1,0 +1,28 @@
+load("@build_bazel_rules_swift//swift:swift.bzl", "swift_library")
+
+swift_library(
+    name = "AgentgramSettingsUI",
+    module_name = "AgentgramSettingsUI",
+    srcs = glob([
+        "Sources/**/*.swift",
+    ]),
+    copts = [
+        "-warnings-as-errors",
+    ],
+    deps = [
+        "//submodules/Display:Display",
+        "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",
+        "//submodules/TelegramCore:TelegramCore",
+        "//submodules/TelegramPresentationData:TelegramPresentationData",
+        "//submodules/TelegramUIPreferences:TelegramUIPreferences",
+        "//submodules/ItemListUI:ItemListUI",
+        "//submodules/PresentationDataUtils:PresentationDataUtils",
+        "//submodules/AccountContext:AccountContext",
+        "//submodules/AppBundle:AppBundle",
+        "//submodules/AgentgramCore",
+        "//submodules/TelegramUI/Components/ThreadedBotSessions",
+    ],
+    visibility = [
+        "//visibility:public",
+    ],
+)

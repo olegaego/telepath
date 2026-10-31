@@ -1,4 +1,5 @@
 import Foundation
+import AgentgramCore
 import UIKit
 import Display
 import AsyncDisplayKit
@@ -89,6 +90,9 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
     private var detailsPlaceholderNode: DetailsChatPlaceholderNode?
     
     private var applicationInFocusDisposable: Disposable?
+    // Agentgram: the tabs follow «Agentgram → Tabs»
+    private var agentgramTabsObserver: NSObjectProtocol?
+    private var agentgramShowNewsTab = false
     private var storyUploadEventsDisposable: Disposable?
     
     override public var minimizedContainer: MinimizedContainer? {
@@ -213,15 +217,24 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         contactsController.switchToChatsController = {  [weak self] in
             self?.openChatsController(activateSearch: false)
         }
-        controllers.append(contactsController)
-        
-        if showCallsTab {
+        // Agentgram: Contacts and Calls only when turned on in «Agentgram → Tabs»
+        if AgentgramTabs.showsContacts {
+            controllers.append(contactsController)
+        }
+        if AgentgramTabs.showsCalls {
             controllers.append(callListController)
         }
         controllers.append(chatListController)
         if showNewsTab {
             controllers.append(newsController)
         }
+        self.agentgramShowNewsTab = showNewsTab
+        self.agentgramTabsObserver = NotificationCenter.default.addObserver(forName: AgentgramTabs.didChange, object: nil, queue: .main, using: { [weak self] _ in
+            guard let self else {
+                return
+            }
+            self.updateRootControllers(showCallsTab: AgentgramTabs.showsCalls, showNewsTab: self.agentgramShowNewsTab)
+        })
         
         var restoreSettignsController: (ViewController & SettingsController)?
         if let sharedContext = self.context.sharedContext as? SharedAccountContextImpl {
@@ -259,10 +272,14 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
             return
         }
         var controllers: [ViewController] = []
-        controllers.append(self.contactsController!)
-        if showCallsTab {
+        // Agentgram: Contacts and Calls only when turned on in «Agentgram → Tabs»
+        if AgentgramTabs.showsContacts {
+            controllers.append(self.contactsController!)
+        }
+        if AgentgramTabs.showsCalls {
             controllers.append(self.callListController!)
         }
+        self.agentgramShowNewsTab = showNewsTab
         controllers.append(self.chatListController!)
         if showNewsTab, let newsController = self.newsController {
             controllers.append(newsController)
