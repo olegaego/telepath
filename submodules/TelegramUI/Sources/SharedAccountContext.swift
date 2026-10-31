@@ -1650,7 +1650,8 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         #if DEBUG
         sandbox = true
         #else
-        sandbox = false
+        // Agentgram: a release build signed with a development profile gets sandbox APNs tokens
+        sandbox = AgentgramPush.apsIsDevelopment
         #endif
         
         let settings = self.accountManager.sharedData(keys: [ApplicationSpecificSharedDataKeys.inAppNotificationSettings])

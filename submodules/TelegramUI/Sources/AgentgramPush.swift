@@ -12,6 +12,14 @@ import BuildConfig
 enum AgentgramPush {
     private static let buildConfig = BuildConfig(baseAppBundleId: Bundle.main.bundleIdentifier ?? "")
 
+    // Whether the app's provisioning profile gives development (sandbox) APNs tokens
+    static let apsIsDevelopment: Bool = {
+        guard let path = Bundle.main.path(forResource: "embedded", ofType: "mobileprovision"), let data = FileManager.default.contents(atPath: path), let text = String(data: data, encoding: .isoLatin1), let range = text.range(of: "<key>aps-environment</key>") else {
+            return false
+        }
+        return text[range.upperBound...].prefix(80).contains("development")
+    }()
+
     static var isConfigured: Bool {
         return !buildConfig.pushRelayUrl.isEmpty && !buildConfig.pushRelayKey.isEmpty && !buildConfig.pushRelayAuth.isEmpty
     }
