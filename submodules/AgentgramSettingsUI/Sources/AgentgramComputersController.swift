@@ -49,7 +49,7 @@ private struct ComputersTexts {
     var installWindows: String { ru ? "Как поставить на Windows" : "How to Install on Windows" }
     var installSoon: String { ru ? "Готовая установка появится с выходом Agentgram. Пока помощник ставится вручную." : "A ready installer comes with the Agentgram release. For now the helper is installed by hand." }
     var nearbyNow: String { ru ? "в сети, рядом" : "online, nearby" }
-    var notNearby: String { ru ? "не в этой сети" : "not on this network" }
+    var notNearby: String { ru ? "не в сети рядом" : "not online nearby" }
     var whereHeader: String { ru ? "ГДЕ РАБОТАЕТ" : "WHERE IT WORKS" }
     var openChatButton: String { ru ? "Открыть чат" : "Open Chat" }
     var computerRow: String { ru ? "Компьютер" : "Computer" }
@@ -482,7 +482,7 @@ private enum ComputerEntry: ItemListNodeEntry {
         let arguments = arguments as! ComputerArguments
         switch self {
         case let .status(name, text, nearby, peer):
-            return AgentgramComputerHeaderItem(theme: presentationData.theme, iconColor: UIColor(rgb: 0x5856D6), iconSize: 72.0, title: name, status: text, statusColor: nearby ? UIColor(rgb: 0x34C759) : UIColor(rgb: 0x8E8E93), context: arguments.context, peer: peer, sectionId: self.section)
+            return AgentgramComputerHeaderItem(theme: presentationData.theme, iconColor: UIColor(rgb: 0x5856D6), iconSize: 72.0, title: name, status: text, statusColor: nearby ? UIColor(rgb: 0x34C759) : UIColor(rgb: 0xFF3B30), context: arguments.context, peer: peer, sectionId: self.section)
         case let .openChat(title):
             return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: title, kind: .generic, alignment: .center, sectionId: self.section, style: .blocks, action: {
                 arguments.openChat()
