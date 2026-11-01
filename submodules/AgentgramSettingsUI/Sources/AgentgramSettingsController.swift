@@ -40,6 +40,7 @@ private struct AgentgramTexts {
     var agentsFooter: String { ru ? "Агент это твой бот, который работает на твоём компьютере. Пишешь боту, отвечает Claude Code или Codex." : "An agent is your bot working on your computer. You write to the bot, Claude Code or Codex answers." }
     var sessionsUnderBot: String { ru ? "Сессии под ботом" : "Sessions Under the Bot" }
     var stockTopics: String { ru ? "Обычные темы Telegram" : "Telegram's Own Topics" }
+    var previewHeader: String { ru ? "КАК ЭТО ВЫГЛЯДИТ" : "HOW IT LOOKS" }
     var topicsHeader: String { ru ? "ТЕМЫ БОТОВ" : "BOT TOPICS" }
     var topicsFooter: String { ru ? "Сессии под ботом: темы бота видны прямо в списке чатов, под ботом, со статусами. Как показывать каждого бота, настраивается стрелкой на его аватарке.\n\nОбычные темы Telegram: у бота одна строка, темы открываются внутри его чата." : "Sessions under the bot: a bot's topics are right in the chat list, under the bot, with their status. How each bot is shown is set with the arrow on its avatar.\n\nTelegram's own topics: one row for the bot, its topics open inside its chat." }
     var tabsHeader: String { ru ? "ВКЛАДКИ ВНИЗУ" : "TABS AT THE BOTTOM" }
@@ -275,9 +276,16 @@ private enum TopicsViewEntry: ItemListNodeEntry {
     case sessions(String, Bool)
     case stock(String, Bool)
     case footer(String)
+    case previewHeader(String)
+    case preview(Bool, Bool)
 
     var section: ItemListSectionId {
-        return 0
+        switch self {
+        case .previewHeader, .preview:
+            return 1
+        default:
+            return 0
+        }
     }
 
     var stableId: Int32 {
@@ -286,6 +294,8 @@ private enum TopicsViewEntry: ItemListNodeEntry {
         case .sessions: return 1
         case .stock: return 2
         case .footer: return 3
+        case .previewHeader: return 4
+        case .preview: return 5
         }
     }
 
@@ -296,8 +306,10 @@ private enum TopicsViewEntry: ItemListNodeEntry {
     func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
         let arguments = arguments as! TopicsViewArguments
         switch self {
-        case let .header(text):
+        case let .header(text), let .previewHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .preview(sessions, ru):
+            return AgentgramTopicsPreviewItem(presentationData: presentationData, sessions: sessions, ru: ru, sectionId: self.section)
         case let .sessions(title, checked):
             return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, title: title, style: .left, checked: checked, zeroSeparatorInsets: false, sectionId: self.section, action: {
                 arguments.select(true)
@@ -324,7 +336,9 @@ private func agentgramTopicsViewController(context: AccountContext) -> ViewContr
             .header(texts.topicsHeader),
             .sessions(texts.sessionsUnderBot, on),
             .stock(texts.stockTopics, !on),
-            .footer(texts.topicsFooter)
+            .footer(texts.topicsFooter),
+            .previewHeader(texts.previewHeader),
+            .preview(on, texts.ru)
         ]
         let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(texts.topicsView), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, animateChanges: false)
