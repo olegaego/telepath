@@ -450,10 +450,11 @@ private enum ComputerEntry: ItemListNodeEntry {
 
     var section: ItemListSectionId {
         switch self {
-        case .status, .openChat: return 0
-        case .agentHeader, .computer, .engine, .projects: return 1
-        case .sessionsHeader, .running, .topics: return 2
-        case .disconnect, .disconnectFooter: return 3
+        case .status: return 0
+        case .openChat: return 1
+        case .agentHeader, .computer, .engine, .projects: return 2
+        case .sessionsHeader, .running, .topics: return 3
+        case .disconnect, .disconnectFooter: return 4
         }
     }
 

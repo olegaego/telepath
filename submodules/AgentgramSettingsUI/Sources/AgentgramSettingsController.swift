@@ -63,6 +63,7 @@ private let tabsIcon = icon("Item List/Icons/Multiple", 0x5856D6)
 private let superfolderIcon = icon("Item List/Icons/Folder", 0xFF9500)
 private let nearbyComputerIcon = icon("Item List/Icons/Devices", 0x8E8E93)
 private let addComputerIcon = icon("Item List/Icons/Add", 0x2AABEE)
+private let nearbyDot = generateFilledCircleImage(diameter: 10.0, color: UIColor(rgb: 0x34C759))
 private let chatsIcon = icon("Item List/Icons/Chat", 0x2AABEE)
 private let contactsIcon = icon("Item List/Icons/Profile", 0x8E8E93)
 private let callsIcon = icon("Item List/Icons/Phone", 0x34C759)
@@ -158,7 +159,7 @@ private enum MainEntry: ItemListNodeEntry {
                 arguments.openSuperfolder()
             })
         case let .agent(_, computer, peer, detail, label):
-            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: peer == nil ? nearbyComputerIcon : nil, context: arguments.context, iconPeer: peer, title: "@" + computer.bot, label: label, labelStyle: .coloredText(UIColor(rgb: 0x34C759)), additionalDetailLabel: detail, sectionId: self.section, style: .blocks, action: {
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: peer == nil ? nearbyComputerIcon : nil, context: arguments.context, iconPeer: peer, title: "@" + computer.bot, label: "", labelStyle: label.isEmpty ? .text : .image(image: nearbyDot ?? UIImage(), size: CGSize(width: 10.0, height: 10.0)), additionalDetailLabel: detail, sectionId: self.section, style: .blocks, action: {
                 arguments.openAgent(computer)
             })
         case let .nearby(_, computer, detail, label):
