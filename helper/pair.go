@@ -108,6 +108,7 @@ type Network struct {
 	Paired   chan Config
 	Unpaired chan struct{}
 	Status   func() map[string]any // what /info tells about the work: topics, running turns
+	OnEngine func(engine string)   // the phone switched the engine
 }
 
 func startNetwork(cfg Config) (*Network, error) {
@@ -124,6 +125,7 @@ func startNetwork(cfg Config) (*Network, error) {
 	mux.HandleFunc("/pair", n.handlePair)
 	mux.HandleFunc("/info", n.handleInfo)
 	mux.HandleFunc("/unpair", n.handleUnpair)
+	mux.HandleFunc("/engine", n.handleEngine)
 	n.server = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = n.server.Serve(listener) }()
 	n.reannounce(cfg)
@@ -223,9 +225,14 @@ func (n *Network) handlePair(w http.ResponseWriter, r *http.Request) {
 
 // The phone proves it is the one that connected this computer: the secret it sent then, and a fresh time
 func (n *Network) authorized(w http.ResponseWriter, r *http.Request) (Config, bool) {
+	cfg, _, ok := n.authorizedRequest(w, r)
+	return cfg, ok
+}
+
+func (n *Network) authorizedRequest(w http.ResponseWriter, r *http.Request) (Config, []byte, bool) {
 	plain, ok := n.readSealed(w, r)
 	if !ok {
-		return Config{}, false
+		return Config{}, nil, false
 	}
 	var req struct {
 		Secret string `json:"secret"`
@@ -234,9 +241,28 @@ func (n *Network) authorized(w http.ResponseWriter, r *http.Request) (Config, bo
 	cfg, _ := loadConfig()
 	if json.Unmarshal(plain, &req) != nil || cfg.PhoneSecret == "" || req.Secret != cfg.PhoneSecret || abs(time.Now().Unix()-req.Time) > 300 {
 		http.Error(w, "not yours", http.StatusForbidden)
-		return Config{}, false
+		return Config{}, nil, false
 	}
-	return cfg, true
+	return cfg, plain, true
+}
+
+// The phone switches the engine: the same as in the menu here
+func (n *Network) handleEngine(w http.ResponseWriter, r *http.Request) {
+	_, plain, ok := n.authorizedRequest(w, r)
+	if !ok {
+		return
+	}
+	var req struct {
+		Engine string `json:"engine"`
+	}
+	if json.Unmarshal(plain, &req) != nil || (req.Engine != "claude" && req.Engine != "codex") || !engineInstalled(req.Engine) {
+		http.Error(w, "bad engine", http.StatusBadRequest)
+		return
+	}
+	if n.OnEngine != nil {
+		n.OnEngine(req.Engine)
+	}
+	writeJSON(w, map[string]any{"ok": true, "engine": req.Engine})
 }
 
 func (n *Network) handleInfo(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +270,8 @@ func (n *Network) handleInfo(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	info := map[string]any{"bot": cfg.BotName, "engine": cfg.Engine, "projects": cfg.ProjectsDir, "computer": computerName()}
+	info := map[string]any{"bot": cfg.BotName, "engine": cfg.Engine, "projects": cfg.ProjectsDir, "computer": computerName(),
+		"limits": knownLimits(), "installed": map[string]bool{"claude": engineInstalled("claude"), "codex": engineInstalled("codex")}}
 	if n.Status != nil {
 		for k, v := range n.Status() {
 			info[k] = v

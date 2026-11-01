@@ -13,8 +13,9 @@ import (
 // line by line. The helper only starts it and reads what it prints; the login stays Claude Code's own.
 
 type TurnEvents struct {
-	Step    func(text string) // what it does now, for the draft in the topic
-	Session func(id string)   // the session id, to resume the next turn
+	Step    func(text string)  // what it does now, for the draft in the topic
+	Session func(id string)    // the session id, to resume the next turn
+	Limits  func(EngineLimits) // the engine's limits, when it tells them
 }
 
 type TurnResult struct {
@@ -119,6 +120,10 @@ func (t *ClaudeTurn) Run(cwd, session, prompt string, ev TurnEvents) TurnResult 
 			ev.Session(e.SessionID)
 		}
 		switch e.Type {
+		case "rate_limit_event":
+			if l, ok := claudeLimits(sc.Bytes()); ok && ev.Limits != nil {
+				ev.Limits(l)
+			}
 		case "assistant":
 			for _, b := range e.Message.Content {
 				if b.Type == "tool_use" && ev.Step != nil {

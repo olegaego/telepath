@@ -61,6 +61,7 @@ func main() {
 		os.Exit(0)
 	}()
 	app := &App{network: network}
+	network.OnEngine = app.setEngine
 	if args["--no-tray"] {
 		app.run(cfg)
 		return
@@ -108,6 +109,7 @@ type UI interface {
 	Waiting(code string)
 	Working(bot, engine string)
 	Paired(bot, engine string)
+	EngineChanged(engine string)
 }
 
 func (a *App) run(cfg Config) {
@@ -128,6 +130,7 @@ func (a *App) run(cfg Config) {
 			}
 		}
 		h := &Helper{cfg: cfg, bot: NewBot(cfg.BotToken), state: loadState(), topics: map[string]*topicWork{}, pending: map[string]*pendingChoice{}}
+		h.switchEngine = a.setEngine
 		a.network.Status = h.status
 		me, err := h.bot.GetMe()
 		if err != nil {
@@ -217,6 +220,9 @@ func (a *App) setEngine(engine string) {
 		h.cfg.Engine = engine
 		h.mu.Unlock()
 	}
+	if a.ui != nil {
+		a.ui.EngineChanged(engine)
+	}
 }
 
 func (h *Helper) projectsDir() string {
@@ -262,12 +268,13 @@ func setup() {
 }
 
 type Helper struct {
-	cfg     Config
-	bot     *Bot
-	state   *State
-	mu      sync.Mutex
-	topics  map[string]*topicWork     // topics with a turn going
-	pending map[string]*pendingChoice // what the buttons of a topic mean
+	cfg          Config
+	bot          *Bot
+	state        *State
+	mu           sync.Mutex
+	topics       map[string]*topicWork     // topics with a turn going
+	pending      map[string]*pendingChoice // what the buttons of a topic mean
+	switchEngine func(engine string)       // the app's own switch: saved, announced, shown in the menu
 }
 
 type topicWork struct {
@@ -479,6 +486,12 @@ func (h *Helper) onCallback(q *CallbackQuery) {
 		h.mu.Unlock()
 		h.state.setTopic(key, TopicState{Cwd: p.dirs[i]})
 		_ = h.bot.Edit(chat, q.Message.MessageID, "Работаем в "+filepath.Base(p.dirs[i])+". Пиши, что делаем.", nil)
+	case strings.HasPrefix(q.Data, "engine:"):
+		engine := strings.TrimPrefix(q.Data, "engine:")
+		if (engine == "claude" || engine == "codex") && h.switchEngine != nil {
+			h.switchEngine(engine)
+			_ = h.bot.Edit(chat, q.Message.MessageID, q.Message.Text+"\n\n→ Теперь "+engineName(engine)+". Следующее сообщение в теме начнёт новую сессию.", nil)
+		}
 	case strings.HasPrefix(q.Data, "ch:") && p != nil:
 		i, _ := strconv.Atoi(strings.TrimPrefix(q.Data, "ch:"))
 		if i < 0 || i >= len(p.options) {
@@ -490,6 +503,42 @@ func (h *Helper) onCallback(q *CallbackQuery) {
 			h.enqueue(chat, thread, t, choice)
 		}
 	}
+}
+
+// From 80% of a window the bot says so once, with a button to the other engine when it is installed here
+func (h *Helper) warnLimits(chat, thread int64, engine string, windows []LimitWindow) {
+	other := "codex"
+	if engine == "codex" {
+		other = "claude"
+	}
+	for _, w := range windows {
+		text := fmt.Sprintf("⚠️ %s: %s окно лимита на **%.0f%%**", engineName(engine), windowWord(w.Name), w.Percent)
+		if r := resetText(w.ResetsAt); r != "" {
+			text += ", " + r
+		}
+		var kb *Keyboard
+		if engineInstalled(other) {
+			kb = &Keyboard{InlineKeyboard: [][]Button{{{Text: "Переключить на " + engineName(other), CallbackData: "engine:" + other}}}}
+		}
+		if _, err := h.bot.SendRich(chat, thread, text+".", kb); err != nil {
+			_, _ = h.bot.Send(chat, thread, strings.ReplaceAll(text, "**", "")+".", kb)
+		}
+	}
+}
+
+func elapsed(d time.Duration) string {
+	sec := int(d.Seconds())
+	if sec >= 60 {
+		return fmt.Sprintf("%d мин %d с", sec/60, sec%60)
+	}
+	return fmt.Sprintf("%d с", sec)
+}
+
+func engineInstalled(engine string) bool {
+	if engine == "codex" {
+		return codexInstalled()
+	}
+	return claudeBinary() != "claude"
 }
 
 func (h *Helper) stop(key string) {
@@ -537,6 +586,8 @@ func (h *Helper) enqueue(chat, thread int64, t TopicState, prompt string) {
 func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn, prompt string) {
 	engine := h.engine()
 	log.Printf("ход: тема %s, %s, папка %s", key, engine, t.Cwd)
+	started := time.Now()
+	var warnings []LimitWindow
 	if !filepath.IsAbs(t.Cwd) {
 		t.Cwd = filepath.Join(h.projectsDir(), t.Cwd)
 	}
@@ -585,6 +636,9 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 				h.state.setSession(key, id, engine)
 			}
 		},
+		Limits: func(l EngineLimits) {
+			warnings = append(warnings, saveLimits(engine, l)...)
+		},
 	})
 	if draft.MessageID != 0 {
 		_ = h.bot.Delete(chat, draft.MessageID)
@@ -595,7 +649,8 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 		return
 	}
 	text, options := choices(result.Text)
-	text = firstNonEmpty(text, "Готово.")
+	text = firstNonEmpty(text, "Готово.") + "\n\n---\n\n" + elapsed(time.Since(started)) + " · " + engineName(engine)
+	defer h.warnLimits(chat, thread, engine, warnings)
 	var kb *Keyboard
 	if len(options) > 0 {
 		kb = &Keyboard{}

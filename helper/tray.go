@@ -125,6 +125,10 @@ func (t *Tray) ready(cfg Config) {
 
 func (t *Tray) pickEngine(engine string) {
 	t.app.setEngine(engine)
+}
+
+// The engine changed here, from the phone or from the bot's button: the checkmarks follow
+func (t *Tray) EngineChanged(engine string) {
 	t.engineID = engine
 	if engine == "codex" {
 		t.codex.Check()

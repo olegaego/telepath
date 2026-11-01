@@ -106,6 +106,9 @@ func (t *CodexTurn) Run(cwd, session, prompt string, ev TurnEvents) TurnResult {
 	t.mu.Lock()
 	t.cmd = nil
 	t.mu.Unlock()
+	if l, ok := codexLimits(); ok && ev.Limits != nil {
+		ev.Limits(l)
+	}
 	if len(messages) > 0 && result.Error == "" {
 		// the last message is the answer; earlier ones were said on the way
 		result.Text = messages[len(messages)-1]
