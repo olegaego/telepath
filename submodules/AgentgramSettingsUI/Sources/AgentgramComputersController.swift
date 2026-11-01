@@ -560,9 +560,15 @@ func agentgramComputerController(context: AccountContext, computer: ConnectedCom
             asked = true
             askComputer(nearby.endpoint, computer, path: "/info", completion: { result in
                 infoPromise.set(.single(result))
+                // the engine may have been changed on the computer, in its menu
+                if let engine = result?["engine"] as? String, engine != computer.engine {
+                    var updated = computer
+                    updated.engine = engine
+                    ConnectedComputers.add(context, updated)
+                }
             })
         }
-        let engine = computer.engine == "codex" ? "Codex" : "Claude Code"
+        let engine = ((info?["engine"] as? String) ?? computer.engine) == "codex" ? "Codex" : "Claude Code"
         var entries: [ComputerEntry] = [
             .status("@" + computer.bot, nearby != nil ? texts.nearbyNow : texts.notNearby, nearby != nil, peer),
             .openChat(texts.openChatButton),
