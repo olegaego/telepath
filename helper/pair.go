@@ -130,6 +130,14 @@ func startNetwork(cfg Config) (*Network, error) {
 	return n, nil
 }
 
+// Leaves the network: the announcement is withdrawn (a «goodbye» the phones see right away) and the server stops
+func (n *Network) Shutdown() {
+	if n.announce != nil {
+		n.announce.Shutdown()
+	}
+	_ = n.server.Close()
+}
+
 func (n *Network) Code() string {
 	code := pairingCode(n.key.PublicKey().Bytes())
 	return code[:3] + " " + code[3:]

@@ -113,6 +113,7 @@ func (t *Tray) ready(cfg Config) {
 					_ = t.app.network.Unpair()
 				}
 			case <-quit.ClickedCh:
+				t.app.network.Shutdown()
 				systray.Quit()
 				os.Exit(0)
 			}

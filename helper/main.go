@@ -12,15 +12,18 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 )
@@ -35,6 +38,7 @@ func main() {
 		return
 	}
 	extendPath()
+	logToFile()
 	if !singleInstance() {
 		fmt.Println("Agentgram для компьютера уже запущен: значок в строке меню.")
 		return
@@ -48,6 +52,14 @@ func main() {
 	if err != nil {
 		log.Fatal("сеть: ", err)
 	}
+	// on quit the computer says goodbye on the network, so Agentgram shows it gone at once
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-signals
+		network.Shutdown()
+		os.Exit(0)
+	}()
 	app := &App{network: network}
 	if args["--no-tray"] {
 		app.run(cfg)
@@ -68,6 +80,18 @@ func extendPath() {
 		}
 	}
 	_ = os.Setenv("PATH", path)
+}
+
+// The journal also goes to ~/.agentgram/helper.log: from the menu bar there is no terminal to see it in
+func logToFile() {
+	path := filepath.Join(dataDir(), "helper.log")
+	if st, err := os.Stat(path); err == nil && st.Size() > 5<<20 {
+		_ = os.Rename(path, path+".old")
+	}
+	_ = os.MkdirAll(dataDir(), 0o700)
+	if f, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600); err == nil {
+		log.SetOutput(io.MultiWriter(os.Stderr, f))
+	}
 }
 
 // The helper's work, the same with the menu-bar icon or without it: waits for the phone, then works as the bot until
@@ -483,6 +507,7 @@ func (h *Helper) stop(key string) {
 // One turn at a time in a topic; what comes meanwhile waits and goes next
 func (h *Helper) enqueue(chat, thread int64, t TopicState, prompt string) {
 	key := topicKey(chat, thread)
+	turn := h.newTurn() // before the lock: choosing the engine takes it too
 	h.mu.Lock()
 	if w := h.topics[key]; w != nil {
 		w.queue = append(w.queue, prompt)
@@ -490,7 +515,7 @@ func (h *Helper) enqueue(chat, thread int64, t TopicState, prompt string) {
 		_, _ = h.bot.Send(chat, thread, "Закончу текущее и возьмусь.", nil)
 		return
 	}
-	w := &topicWork{turn: h.newTurn()}
+	w := &topicWork{turn: turn}
 	h.topics[key] = w
 	h.mu.Unlock()
 	go func() {
@@ -511,6 +536,10 @@ func (h *Helper) enqueue(chat, thread int64, t TopicState, prompt string) {
 
 func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn, prompt string) {
 	engine := h.engine()
+	log.Printf("ход: тема %s, %s, папка %s", key, engine, t.Cwd)
+	if !filepath.IsAbs(t.Cwd) {
+		t.Cwd = filepath.Join(h.projectsDir(), t.Cwd)
+	}
 	session := t.Session
 	if firstNonEmpty(t.Engine, "claude") != engine {
 		// the topic's session is the other engine's: this one starts its own
@@ -561,6 +590,7 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 		_ = h.bot.Delete(chat, draft.MessageID)
 	}
 	if result.Error != "" {
+		log.Printf("ход: тема %s, ошибка: %s", key, trim(result.Error, 300))
 		_, _ = h.bot.Send(chat, thread, "Ошибка: "+trim(result.Error, 3500), nil)
 		return
 	}
