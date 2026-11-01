@@ -34,6 +34,7 @@ func main() {
 		setup()
 		return
 	}
+	extendPath()
 	if !singleInstance() {
 		fmt.Println("Agentgram для компьютера уже запущен: значок в строке меню.")
 		return
@@ -53,6 +54,20 @@ func main() {
 		return
 	}
 	runTray(app, cfg)
+}
+
+// Started from the menu bar or at login, the helper gets a bare PATH; the engines' CLIs (and node, which runs codex)
+// are usually in Homebrew's or the user's own bin
+func extendPath() {
+	home, _ := os.UserHomeDir()
+	extra := []string{"/opt/homebrew/bin", "/usr/local/bin", filepath.Join(home, ".local", "bin")}
+	path := os.Getenv("PATH")
+	for _, d := range extra {
+		if !strings.Contains(string(os.PathListSeparator)+path+string(os.PathListSeparator), string(os.PathListSeparator)+d+string(os.PathListSeparator)) {
+			path += string(os.PathListSeparator) + d
+		}
+	}
+	_ = os.Setenv("PATH", path)
 }
 
 // The helper's work, the same with the menu-bar icon or without it: waits for the phone, then works as the bot until
@@ -142,6 +157,44 @@ func (a *App) setProjectsDir(dir string) {
 	}
 }
 
+// A turn of the engine this computer works on now
+type Turn interface {
+	Run(cwd, session, prompt string, ev TurnEvents) TurnResult
+	Stop()
+}
+
+func (h *Helper) engine() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.cfg.Engine == "codex" {
+		return "codex"
+	}
+	return "claude"
+}
+
+func (h *Helper) newTurn() Turn {
+	if h.engine() == "codex" {
+		return &CodexTurn{}
+	}
+	return &ClaudeTurn{}
+}
+
+// Another engine, from the menu: saved, and the next turns go to it (a turn going now finishes on the old one)
+func (a *App) setEngine(engine string) {
+	cfg, _ := loadConfig()
+	cfg.Engine = engine
+	_ = saveConfig(cfg)
+	a.network.reannounce(cfg)
+	a.mu.Lock()
+	h := a.helper
+	a.mu.Unlock()
+	if h != nil {
+		h.mu.Lock()
+		h.cfg.Engine = engine
+		h.mu.Unlock()
+	}
+}
+
 func (h *Helper) projectsDir() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -194,7 +247,7 @@ type Helper struct {
 }
 
 type topicWork struct {
-	turn  *ClaudeTurn
+	turn  Turn
 	queue []string
 }
 
@@ -437,7 +490,7 @@ func (h *Helper) enqueue(chat, thread int64, t TopicState, prompt string) {
 		_, _ = h.bot.Send(chat, thread, "Закончу текущее и возьмусь.", nil)
 		return
 	}
-	w := &topicWork{turn: &ClaudeTurn{}}
+	w := &topicWork{turn: h.newTurn()}
 	h.topics[key] = w
 	h.mu.Unlock()
 	go func() {
@@ -456,7 +509,13 @@ func (h *Helper) enqueue(chat, thread int64, t TopicState, prompt string) {
 	}()
 }
 
-func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn *ClaudeTurn, prompt string) {
+func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn, prompt string) {
+	engine := h.engine()
+	session := t.Session
+	if firstNonEmpty(t.Engine, "claude") != engine {
+		// the topic's session is the other engine's: this one starts its own
+		session = ""
+	}
 	draft, _ := h.bot.Send(chat, thread, "… Думаю", nil)
 	var steps []string
 	var last time.Time
@@ -484,7 +543,7 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn *Cla
 			last = time.Now()
 		}
 	}
-	result := turn.Run(claudeBinary(), t.Cwd, t.Session, prompt, TurnEvents{
+	result := turn.Run(t.Cwd, session, prompt, TurnEvents{
 		Step: func(s string) {
 			mu.Lock()
 			steps = append(steps, s)
@@ -492,9 +551,9 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn *Cla
 			show(false)
 		},
 		Session: func(id string) {
-			if id != t.Session {
-				t.Session = id
-				h.state.setSession(key, id)
+			if id != session {
+				session = id
+				h.state.setSession(key, id, engine)
 			}
 		},
 	})

@@ -24,6 +24,7 @@ type Config struct {
 type TopicState struct {
 	Cwd     string `json:"cwd"`
 	Session string `json:"session,omitempty"`
+	Engine  string `json:"engine,omitempty"` // whose session it is: "claude" (also when empty) or "codex"
 }
 
 type State struct {
@@ -97,10 +98,10 @@ func (s *State) setTopic(key string, t TopicState) {
 	s.save()
 }
 
-func (s *State) setSession(key, session string) {
+func (s *State) setSession(key, session, engine string) {
 	s.mu.Lock()
 	if t, ok := s.Topics[key]; ok {
-		t.Session = session
+		t.Session, t.Engine = session, engine
 	}
 	s.mu.Unlock()
 	s.save()

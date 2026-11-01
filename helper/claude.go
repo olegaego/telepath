@@ -72,14 +72,14 @@ func (t *ClaudeTurn) Stop() {
 	}
 }
 
-func (t *ClaudeTurn) Run(bin, cwd, session, prompt string, ev TurnEvents) TurnResult {
+func (t *ClaudeTurn) Run(cwd, session, prompt string, ev TurnEvents) TurnResult {
 	args := []string{"-p", "--output-format", "stream-json", "--verbose",
 		"--permission-mode", "bypassPermissions", "--append-system-prompt", topicPrompt}
 	if session != "" {
 		args = append(args, "--resume", session)
 	}
 	args = append(args, prompt)
-	cmd := exec.Command(bin, args...)
+	cmd := exec.Command(claudeBinary(), args...)
 	cmd.Dir = cwd
 	out, err := cmd.StdoutPipe()
 	if err != nil {

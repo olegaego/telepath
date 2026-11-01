@@ -60,9 +60,12 @@ func (t *Tray) ready(cfg Config) {
 	t.openChat = systray.AddMenuItem("Открыть чат в Telegram", "")
 	systray.AddSeparator()
 	t.engine = systray.AddMenuItem("Движок", "")
-	t.claude = t.engine.AddSubMenuItemCheckbox("Claude Code", "", true)
-	t.codex = t.engine.AddSubMenuItemCheckbox("Codex (скоро)", "", false)
-	t.codex.Disable()
+	t.claude = t.engine.AddSubMenuItemCheckbox("Claude Code", "", cfg.Engine != "codex")
+	t.codex = t.engine.AddSubMenuItemCheckbox("Codex", "", cfg.Engine == "codex")
+	if !codexInstalled() {
+		t.codex.SetTitle("Codex (не установлен)")
+		t.codex.Disable()
+	}
 	t.folder = systray.AddMenuItem("", "")
 	t.showFolder(cfg.ProjectsDir)
 	t.login = systray.AddMenuItemCheckbox("Запускать при входе", "", autostartEnabled())
@@ -88,7 +91,9 @@ func (t *Tray) ready(cfg Config) {
 			case <-t.openChat.ClickedCh:
 				openURL("https://t.me/" + t.bot)
 			case <-t.claude.ClickedCh:
-				t.claude.Check()
+				t.pickEngine("claude")
+			case <-t.codex.ClickedCh:
+				t.pickEngine("codex")
 			case <-t.folder.ClickedCh:
 				if dir := chooseFolder(); dir != "" {
 					t.app.setProjectsDir(dir)
@@ -115,6 +120,19 @@ func (t *Tray) ready(cfg Config) {
 	}()
 	go t.refresh()
 	go t.app.run(cfg)
+}
+
+func (t *Tray) pickEngine(engine string) {
+	t.app.setEngine(engine)
+	t.engineID = engine
+	if engine == "codex" {
+		t.codex.Check()
+		t.claude.Uncheck()
+	} else {
+		t.claude.Check()
+		t.codex.Uncheck()
+	}
+	t.showStatus()
 }
 
 func (t *Tray) showFolder(dir string) {
