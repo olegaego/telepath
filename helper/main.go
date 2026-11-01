@@ -26,12 +26,20 @@ import (
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "setup" {
+	args := map[string]bool{}
+	for _, a := range os.Args[1:] {
+		args[a] = true
+	}
+	if args["setup"] {
 		setup()
 		return
 	}
+	if !singleInstance() {
+		fmt.Println("Agentgram для компьютера уже запущен: значок в строке меню.")
+		return
+	}
 	cfg, _ := loadConfig()
-	if len(os.Args) > 1 && os.Args[1] == "pair" {
+	if args["pair"] {
 		cfg.BotToken, cfg.OwnerID, cfg.BotName, cfg.PhoneSecret = "", 0, "", ""
 		_ = saveConfig(cfg)
 	}
@@ -39,18 +47,49 @@ func main() {
 	if err != nil {
 		log.Fatal("сеть: ", err)
 	}
+	app := &App{network: network}
+	if args["--no-tray"] {
+		app.run(cfg)
+		return
+	}
+	runTray(app, cfg)
+}
+
+// The helper's work, the same with the menu-bar icon or without it: waits for the phone, then works as the bot until
+// it is disconnected, and waits again
+type App struct {
+	network *Network
+	ui      UI
+	mu      sync.Mutex
+	helper  *Helper
+}
+
+// What the icon's menu shows; nothing when the helper runs without it
+type UI interface {
+	Waiting(code string)
+	Working(bot, engine string)
+	Paired(bot, engine string)
+}
+
+func (a *App) run(cfg Config) {
 	for {
 		if cfg.BotToken == "" {
 			fmt.Println()
 			fmt.Println("Жду Agentgram в этой сети.")
-			fmt.Println("В Agentgram: Настройки → Agentgram → Компьютеры → «" + computerName() + "» → Подключить.")
-			fmt.Println("Код на телефоне должен быть таким:  " + network.Code())
+			fmt.Println("В Agentgram: Настройки → Agentgram → Агенты → «" + computerName() + "» → Подключить.")
+			fmt.Println("Код на телефоне должен быть таким:  " + a.network.Code())
 			fmt.Println()
-			cfg = <-network.Paired
+			if a.ui != nil {
+				a.ui.Waiting(a.network.Code())
+			}
+			cfg = <-a.network.Paired
 			log.Println("подключён")
+			if a.ui != nil {
+				a.ui.Paired(cfg.BotName, cfg.Engine)
+			}
 		}
 		h := &Helper{cfg: cfg, bot: NewBot(cfg.BotToken), state: loadState(), topics: map[string]*topicWork{}, pending: map[string]*pendingChoice{}}
-		network.Status = h.status
+		a.network.Status = h.status
 		me, err := h.bot.GetMe()
 		if err != nil {
 			log.Println("бот не отвечает: ", err)
@@ -58,13 +97,55 @@ func main() {
 			continue
 		}
 		log.Printf("работаю как @%s, хозяин %d, движок %s", me.Username, cfg.OwnerID, cfg.Engine)
+		a.mu.Lock()
+		a.helper = h
+		a.mu.Unlock()
+		if a.ui != nil {
+			a.ui.Working(me.Username, cfg.Engine)
+		}
 		stop := make(chan struct{})
 		go h.loop(stop)
-		<-network.Unpaired
+		<-a.network.Unpaired
 		close(stop)
-		log.Println("отключён в Agentgram")
+		a.mu.Lock()
+		a.helper = nil
+		a.mu.Unlock()
+		log.Println("отключён")
 		cfg, _ = loadConfig()
 	}
+}
+
+// Topics and running turns of the bot now working, for the menu
+func (a *App) status() (topics, running int, ok bool) {
+	a.mu.Lock()
+	h := a.helper
+	a.mu.Unlock()
+	if h == nil {
+		return 0, 0, false
+	}
+	st := h.status()
+	return st["topics"].(int), st["running"].(int), true
+}
+
+// A new projects folder, from the menu: saved, and the working helper lists projects from it at once
+func (a *App) setProjectsDir(dir string) {
+	cfg, _ := loadConfig()
+	cfg.ProjectsDir = dir
+	_ = saveConfig(cfg)
+	a.mu.Lock()
+	h := a.helper
+	a.mu.Unlock()
+	if h != nil {
+		h.mu.Lock()
+		h.cfg.ProjectsDir = dir
+		h.mu.Unlock()
+	}
+}
+
+func (h *Helper) projectsDir() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.cfg.ProjectsDir
 }
 
 // For «Computers» in Agentgram: how many topics and how many of them work right now
@@ -230,14 +311,14 @@ func (h *Helper) saveFiles(m *Message) []string {
 }
 
 func (h *Helper) folders() []string {
-	entries, err := os.ReadDir(h.cfg.ProjectsDir)
+	entries, err := os.ReadDir(h.projectsDir())
 	if err != nil {
 		return nil
 	}
 	var dirs []string
 	for _, e := range entries {
 		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
-			dirs = append(dirs, filepath.Join(h.cfg.ProjectsDir, e.Name()))
+			dirs = append(dirs, filepath.Join(h.projectsDir(), e.Name()))
 		}
 	}
 	fresh := func(d string) time.Time {
@@ -277,7 +358,7 @@ func (h *Helper) newProject(chat, thread int64, name string) {
 		_, _ = h.bot.Send(chat, thread, "Имя папки: латиница, цифры, точка, дефис или подчёркивание. Ещё раз?", nil)
 		return
 	}
-	path := filepath.Join(h.cfg.ProjectsDir, name)
+	path := filepath.Join(h.projectsDir(), name)
 	if fileExists(path) {
 		_, _ = h.bot.Send(chat, thread, "Такая папка уже есть, выбери её в списке.", nil)
 		return

@@ -11,12 +11,13 @@ import (
 // of the bot's chat the project folder and the engine's session. Nothing of it leaves the computer.
 
 type Config struct {
-	BotToken    string `json:"bot_token"`
-	OwnerID     int64  `json:"owner_id"`
-	Engine      string `json:"engine"`       // "claude" or "codex"
-	ProjectsDir string `json:"projects_dir"` // where new projects are made and folders are listed from
-	BotName     string `json:"bot_name"`
-	PhoneSecret string `json:"phone_secret"` // from the phone that connected this computer, for its later requests
+	BotToken       string `json:"bot_token"`
+	OwnerID        int64  `json:"owner_id"`
+	Engine         string `json:"engine"`       // "claude" or "codex"
+	ProjectsDir    string `json:"projects_dir"` // where new projects are made and folders are listed from
+	BotName        string `json:"bot_name"`
+	PhoneSecret    string `json:"phone_secret"`    // from the phone that connected this computer, for its later requests
+	AutostartAsked bool   `json:"autostart_asked"` // start at login was turned on once, at the first start
 }
 
 type TopicState struct {

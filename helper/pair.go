@@ -246,21 +246,29 @@ func (n *Network) handleInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 func (n *Network) handleUnpair(w http.ResponseWriter, r *http.Request) {
-	cfg, ok := n.authorized(w, r)
-	if !ok {
+	if _, ok := n.authorized(w, r); !ok {
 		return
 	}
-	cfg.BotToken, cfg.OwnerID, cfg.BotName, cfg.PhoneSecret = "", 0, "", ""
-	if err := saveConfig(cfg); err != nil {
+	if err := n.Unpair(); err != nil {
 		http.Error(w, "save", http.StatusInternalServerError)
 		return
 	}
 	writeJSON(w, map[string]any{"ok": true})
+}
+
+// Forgets the bot and its token (from the phone or from the menu here) and waits for a phone again
+func (n *Network) Unpair() error {
+	cfg, _ := loadConfig()
+	cfg.BotToken, cfg.OwnerID, cfg.BotName, cfg.PhoneSecret = "", 0, "", ""
+	if err := saveConfig(cfg); err != nil {
+		return err
+	}
 	n.reannounce(cfg)
 	select {
 	case n.Unpaired <- struct{}{}:
 	default:
 	}
+	return nil
 }
 
 func abs(v int64) int64 {
