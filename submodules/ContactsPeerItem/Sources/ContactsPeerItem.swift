@@ -820,8 +820,13 @@ public class ContactsPeerItemNode: ItemListRevealOptionsItemNode {
             var leftInset: CGFloat = 65.0 + params.leftInset
             var rightInset: CGFloat = 10.0 + params.rightInset
             
-            if case .thread = item.peer {
-                leftInset -= 13.0
+            if case let .thread(peer, _, _, _) = item.peer {
+                if case .user = peer {
+                    // Agentgram: a session of a Threaded Mode bot: indented under the bot, like a subfolder
+                    leftInset += 22.0
+                } else {
+                    leftInset -= 13.0
+                }
             }
             
             let updatedSelectionNode: CheckNode?

@@ -9,6 +9,12 @@ import TelegramUIPreferences
 import TelegramCore
 
 public func chatListFilterItems(context: AccountContext) -> Signal<(Int, [(ChatListFilter, Int, Bool)]), NoError> {
+    // Agentgram
+    return chatListFilterItems(context: context, filters: context.engine.peers.updatedChatListFilters())
+}
+
+// The same unread counts for folders that are kept on the device: the superfolder and its folders.
+public func chatListFilterItems(context: AccountContext, filters filtersSignal: Signal<[ChatListFilter], NoError>) -> Signal<(Int, [(ChatListFilter, Int, Bool)]), NoError> {
     // A folder never names a secret chat. ChatListFilterPredicate resolves a secret chat's identity
     // to its associated cloud user, so including or excluding the user silently does the same to the
     // secret chat; and a folder can pin one, which ChatListFilterIncludePeers deliberately keeps out
@@ -17,7 +23,8 @@ public func chatListFilterItems(context: AccountContext) -> Signal<(Int, [(ChatL
     //
     // The association is sampled once per filter change rather than observed: a secret chat created
     // afterwards is not reflected in the badge until the filters change again or the app restarts.
-    return context.engine.peers.updatedChatListFilters()
+    // Agentgram
+    return filtersSignal
     |> distinctUntilChanged
     |> mapToSignal { filters -> Signal<([ChatListFilter], [EnginePeer.Id: [EnginePeer.Id]], [EnginePeer.Id: EnginePeer.Id]), NoError> in
         var folderPeerIds = Set<EnginePeer.Id>()

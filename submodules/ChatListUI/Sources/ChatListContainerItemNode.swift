@@ -9,6 +9,8 @@ import SwiftSignalKit
 import AnimationCache
 import MultiAnimationRenderer
 import TelegramCore
+// Agentgram
+import Superfolders
 import ChatListHeaderComponent
 import ActionPanelComponent
 import ChatFolderLinkPreviewScreen
@@ -129,7 +131,8 @@ final class ChatListContainerItemNode: ASDisplayNode {
                                 showEdit = false
                             }
                         }
-                        subject = .filter(showEdit: showEdit)
+                        // Agentgram
+                        subject = filter.id == Superfolders.filterId ? .superfolder : .filter(showEdit: showEdit)
                     } else {
                         if case .forum = location {
                             subject = .forum(hasGeneral: hasOnlyGeneralThread)

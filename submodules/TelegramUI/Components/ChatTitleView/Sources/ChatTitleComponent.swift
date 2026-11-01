@@ -859,7 +859,15 @@ public final class ChatTitleComponent: Component {
                 }
                 state = .info(NSAttributedString(string: infoText, font: subtitleFont, textColor: component.theme.chat.inputPanel.inputControlColor), .generic)
             case .online, .none:
-                if let inputActivities = component.activities, !inputActivities.items.isEmpty, inputActivitiesAllowed {
+                if let inputActivities = component.activities, inputActivities.items.count == 1, case let .interactingWithEmoji(emoticon, _, _) = inputActivities.items[0].activity, emoticon.hasPrefix("\u{0}agentgram"), emoticon.count > 11 {
+                    // Agentgram: an agent session's status from the helper (marker «\0agentgram» + «:» working, «!» settled,
+                    // «×» error, then the text); blue like «typing…», red for an error
+                    let kind = emoticon[emoticon.index(emoticon.startIndex, offsetBy: 10)]
+                    let text = String(emoticon.dropFirst(11))
+                    let color = kind == "×" ? UIColor(rgb: 0xff3b30) : component.theme.rootController.navigationBar.accentTextColor
+                    let string = NSAttributedString(string: text, font: subtitleFont, textColor: color)
+                    state = kind == ":" ? .typingText(string, color) : .info(string, .generic)
+                } else if let inputActivities = component.activities, !inputActivities.items.isEmpty, inputActivitiesAllowed {
                     var stringValue = ""
                     var mergedActivity = inputActivities.items[0].activity
                     for item in inputActivities.items {

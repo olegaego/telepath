@@ -931,7 +931,7 @@ private final class NotificationServiceHandler {
             guard let strongSelf = self, let recordId = recordId else {
                 Logger.shared.log("NotificationService \(episode)", "Couldn't find a matching decryption key")
 
-                let content = NotificationContent(isLockedMessage: nil)
+                let content = agentgramDebugContent("no account for key \(payloadData.prefix(8).map { String(format: "%02x", $0) }.joined()), \(payloadData.count) bytes, \(records.records.count) accounts") // Agentgram
                 updateCurrentContent(content)
                 completed()
 
@@ -953,7 +953,7 @@ private final class NotificationServiceHandler {
                 guard let stateManager = stateManager else {
                     Logger.shared.log("NotificationService \(episode)", "Didn't receive stateManager")
 
-                    let content = NotificationContent(isLockedMessage: nil)
+                    let content = agentgramDebugContent("no state") // Agentgram
                     updateCurrentContent(content)
                     completed()
                     return
@@ -1006,7 +1006,7 @@ private final class NotificationServiceHandler {
                     guard let notificationsKey = notificationsKey else {
                         Logger.shared.log("NotificationService \(episode)", "Didn't receive decryption key")
 
-                        let content = NotificationContent(isLockedMessage: nil)
+                        let content = agentgramDebugContent("no key") // Agentgram: debug builds say where it stopped
                         updateCurrentContent(content)
                         completed()
 
@@ -1015,16 +1015,16 @@ private final class NotificationServiceHandler {
                     guard let decryptedPayload = decryptedNotificationPayload(key: notificationsKey, data: payloadData) else {
                         Logger.shared.log("NotificationService \(episode)", "Couldn't decrypt payload")
 
-                        let content = NotificationContent(isLockedMessage: nil)
+                        let content = agentgramDebugContent("decrypt") // Agentgram: debug builds say where it stopped
                         updateCurrentContent(content)
                         completed()
 
                         return
                     }
-                    guard let payloadJson = try? JSONSerialization.jsonObject(with: decryptedPayload, options: []) as? [String: Any] else {
+                    guard let payloadJson = (try? JSONSerialization.jsonObject(with: decryptedPayload, options: []) as? [String: Any]).flatMap(agentgramWebPushPayload) else {
                         Logger.shared.log("NotificationService \(episode)", "Couldn't process payload as JSON")
 
-                        let content = NotificationContent(isLockedMessage: nil)
+                        let content = agentgramDebugContent("json") // Agentgram: debug builds say where it stopped
                         updateCurrentContent(content)
                         completed()
 
@@ -2708,6 +2708,8 @@ final class NotificationService: UNNotificationServiceExtension {
         self.initialContent = request.content
         self.contentHandler = contentHandler
 
+// Agentgram
+
         self.impl = nil
 
         let content = self.content
@@ -3191,4 +3193,48 @@ extension Customoji {
         }
         return sizes
     }
+}
+
+// Agentgram: in a debug build a push that could not be opened says where it stopped, instead of an empty one
+private func agentgramDebugContent(_ reason: String) -> NotificationContent {
+    var content = NotificationContent(isLockedMessage: nil)
+    #if DEBUG
+    content.title = "Telepath"
+    content.body = "push: " + reason
+    #endif
+    return content
+}
+
+// Agentgram: a push that came by Web Push (through the relay) has, once decrypted, Telegram's Web Push layout:
+// title, description or message, badge, and the ids in «custom». The rest of this file reads the APNs layout,
+// so it is turned into that: the ids at the top level and an «aps» alert.
+private func agentgramWebPushPayload(_ payload: [String: Any]) -> [String: Any] {
+    guard payload["aps"] == nil, let custom = payload["custom"] as? [String: Any] else {
+        return payload
+    }
+    var result = payload
+    for (key, value) in custom where result[key] == nil {
+        result[key] = value is String ? value : "\(value)"
+    }
+    var alert: [String: Any] = [:]
+    if let title = payload["title"] as? String, !title.isEmpty {
+        alert["title"] = title
+    }
+    if let body = (payload["description"] as? String) ?? (payload["message"] as? String) {
+        alert["body"] = body
+    }
+    var aps: [String: Any] = [:]
+    if !alert.isEmpty {
+        aps["alert"] = alert
+    }
+    if let badge = payload["badge"] {
+        aps["badge"] = Int("\(badge)") ?? 0
+    }
+    // Agentgram's own notification sound, bundled with the app (agentgram.caf), as the relay asks for it
+    aps["sound"] = "agentgram.caf"
+    if let threadId = custom["channel_id"] ?? custom["chat_id"] ?? custom["from_id"] {
+        aps["thread-id"] = "\(threadId)"
+    }
+    result["aps"] = aps
+    return result
 }

@@ -326,20 +326,8 @@ filegroup(
     ]),
 )
 
-alternate_icon_folders = [
-    "BlackIcon",
-    "BlackClassicIcon",
-    "BlackFilledIcon",
-    "BlueIcon",
-    "BlueClassicIcon",
-    "BlueFilledIcon",
-    "WhiteFilledIcon",
-    "New1",
-    "New2",
-    "Premium",
-    "PremiumBlack",
-    "PremiumTurbo",
-]
+# Agentgram: no alternate icons, Telegram's paper plane icons are Telegram's mark
+alternate_icon_folders = []
 
 composer_icon_folders = ["Telegram"]
 
@@ -641,7 +629,7 @@ plist_fragment(
     template =
     """
     <key>CFBundleDisplayName</key>
-    <string>Telegram</string>
+    <string>Telepath</string>
     """
 )
 
@@ -669,8 +657,7 @@ ios_framework(
         telegram_bundle_id = telegram_bundle_id,
     ),
     families = [
-        "iphone",
-        "ipad",
+        "iphone",  # Agentgram: iPhone only for now
     ],
     infoplists = [
         ":MtProtoKitInfoPlist",
@@ -710,8 +697,7 @@ ios_framework(
         telegram_bundle_id = telegram_bundle_id,
     ),
     families = [
-        "iphone",
-        "ipad",
+        "iphone",  # Agentgram: iPhone only for now
     ],
     infoplists = [
         ":SwiftSignalKitInfoPlist",
@@ -751,8 +737,7 @@ ios_framework(
         telegram_bundle_id = telegram_bundle_id,
     ),
     families = [
-        "iphone",
-        "ipad",
+        "iphone",  # Agentgram: iPhone only for now
     ],
     infoplists = [
         ":PostboxInfoPlist",
@@ -838,8 +823,7 @@ ios_framework(
         telegram_bundle_id = telegram_bundle_id,
     ),
     families = [
-        "iphone",
-        "ipad",
+        "iphone",  # Agentgram: iPhone only for now
     ],
     infoplists = [
         ":TelegramCoreInfoPlist",
@@ -999,8 +983,7 @@ ios_framework(
         telegram_bundle_id = telegram_bundle_id,
     ),
     families = [
-        "iphone",
-        "ipad",
+        "iphone",  # Agentgram: iPhone only for now
     ],
     infoplists = [
         ":TelegramUIInfoPlist",
@@ -1114,8 +1097,7 @@ ios_extension(
         telegram_bundle_id = telegram_bundle_id,
     ),
     families = [
-        "iphone",
-        "ipad",
+        "iphone",  # Agentgram: iPhone only for now
     ],
     infoplists = [
         ":ShareInfoPlist",
@@ -1221,8 +1203,7 @@ ios_extension(
         telegram_bundle_id = telegram_bundle_id,
     ),
     families = [
-        "iphone",
-        "ipad",
+        "iphone",  # Agentgram: iPhone only for now
     ],
     infoplists = [
         ":NotificationContentInfoPlist",
@@ -1326,8 +1307,7 @@ ios_extension(
         telegram_bundle_id = telegram_bundle_id,
     ),
     families = [
-        "iphone",
-        "ipad",
+        "iphone",  # Agentgram: iPhone only for now
     ],
     infoplists = [
         ":WidgetInfoPlist",
@@ -1499,8 +1479,7 @@ ios_extension(
         telegram_bundle_id = telegram_bundle_id,
     ),
     families = [
-        "iphone",
-        "ipad",
+        "iphone",  # Agentgram: iPhone only for now
     ],
     infoplists = [
         ":IntentsInfoPlist",
@@ -1594,8 +1573,7 @@ ios_extension(
         telegram_bundle_id = telegram_bundle_id,
     ),
     families = [
-        "iphone",
-        "ipad",
+        "iphone",  # Agentgram: iPhone only for now
     ],
     infoplists = [
         ":BroadcastUploadInfoPlist",
@@ -1655,8 +1633,7 @@ ios_extension(
         telegram_bundle_id = telegram_bundle_id,
     ),
     families = [
-        "iphone",
-        "ipad",
+        "iphone",  # Agentgram: iPhone only for now
     ],
     infoplists = [
         ":NotificationServiceInfoPlist",
@@ -1696,7 +1673,7 @@ plist_fragment(
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleDisplayName</key>
-    <string>Telegram</string>
+    <string>Telepath</string>
     <key>CFBundleIdentifier</key>
     <string>{telegram_bundle_id}</string>
     <key>CFBundleName</key>
@@ -1757,6 +1734,12 @@ plist_fragment(
     </dict>
     <key>NSCameraUsageDescription</key>
     <string>We need this so that you can take and share photos and videos.</string>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>Telepath finds your computer with Telepath Helper on this network to connect your agents.</string>
+    <key>NSBonjourServices</key>
+    <array>
+        <string>_agentgram._tcp</string>
+    </array>
     <key>NSContactsUsageDescription</key>
     <string>Telegram stores your contacts heavily encrypted in the cloud to let you connect with your friends across all your devices.</string>
     <key>NSFaceIDUsageDescription</key>
@@ -1816,7 +1799,7 @@ plist_fragment(
     <key>UIDeviceFamily</key>
     <array>
         <integer>1</integer>
-        <integer>2</integer>
+        <!-- Agentgram: iPhone only for now -->
     </array>
     <key>UIFileSharingEnabled</key>
     <false/>
@@ -1908,7 +1891,7 @@ ios_application(
     bundle_id = "{telegram_bundle_id}".format(
         telegram_bundle_id = telegram_bundle_id,
     ),
-    families = ["iphone", "ipad"],
+    families = ["iphone"],  # Agentgram: iPhone only for now
     minimum_os_version = minimum_os_version,
     provisioning_profile = select({
         ":disableProvisioningProfilesSetting": None,

@@ -169,6 +169,8 @@ enum PeerInfoSettingsSection {
     case recentCalls
     case devices
     case chatFolders
+    // Agentgram
+    case superfolder
     case notificationsAndSounds
     case privacyAndSecurity
     case passwordSetup
@@ -197,6 +199,7 @@ enum PeerInfoSettingsSection {
     case stars
     case ton
     case wallet
+    case agentgram
 }
 
 enum PeerInfoReportType {

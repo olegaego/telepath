@@ -64,6 +64,11 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        # Agentgram
+        "//submodules/TelegramUI/Components/ThreadedBotSessions",
+        "//submodules/AgentgramCore",
+        "//submodules/AgentgramSettingsUI",
+        "//submodules/TelegramUI/Components/Superfolders",
         "//submodules/CrashReporting:CrashReporting",
         "//third-party/recaptcha:RecaptchaEnterprise",
         "//submodules/SSignalKit/SwiftSignalKit:SwiftSignalKit",
@@ -514,6 +519,9 @@ swift_library(
         "//submodules/TelegramUI/Components/Chat/QuickShareScreen",
         "//submodules/TelegramUI/Components/ShareScreen",
         "//submodules/TelegramUI/Components/ButtonComponent",
+        # Agentgram
+        "//submodules/Components/SheetComponent",
+        "//submodules/Components/ViewControllerComponent",
         "//submodules/Components/BlurredBackgroundComponent",
         "//submodules/TelegramUI/Components/CheckComponent",
         "//submodules/TelegramUI/Components/MarqueeComponent",

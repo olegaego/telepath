@@ -3,6 +3,8 @@ import UIKit
 import Display
 import SwiftSignalKit
 import TelegramCore
+// Agentgram
+import Superfolders
 import TelegramPresentationData
 import TelegramUIPreferences
 import PresentationDataUtils
@@ -233,6 +235,31 @@ private enum ChatListFilterPresetListEntry: ItemListNodeEntry {
 private struct ChatListFilterPresetListControllerState: Equatable {
     var isEditing: Bool = false
     var revealedPreset: Int32? = nil
+    // Agentgram
+    // The switch on top shows the folders of «Chats» or of the superfolder.
+    var showsSuperfolder: Bool = false
+}
+
+// The superfolder's folders, kept on the device, listed the same way as the folders of «Chats».
+private func superfolderFolderEntries(presentationData: PresentationData, state: ChatListFilterPresetListControllerState, folders: [SuperfolderSettings.Folder], displayTags: Bool, isPremium: Bool) -> [ChatListFilterPresetListEntry] {
+    var entries: [ChatListFilterPresetListEntry] = []
+    entries.append(.screenHeader(presentationData.strings.ChatListFolderSettings_Info))
+    entries.append(.listHeader(presentationData.strings.ChatListFolderSettings_FoldersSection))
+    entries.append(.addItem(text: presentationData.strings.ChatListFilterList_CreateFolder, isEditing: state.isEditing))
+    var effectiveDisplayTags: Bool?
+    if isPremium {
+        effectiveDisplayTags = displayTags
+    }
+    // All of the superfolder's chats first, like «All Chats»: not a folder, so not editable.
+    entries.append(.preset(index: PresetIndex(value: entries.count), title: ChatFolderTitle(text: "", entities: [], enableAnimations: true), label: "", preset: .allChats, canBeReordered: false, canBeDeleted: false, isEditing: state.isEditing, isAllChats: true, isDisabled: false, displayTags: effectiveDisplayTags == true))
+    for folder in folders {
+        let filter = Superfolders.filter(folder: folder)
+        entries.append(.preset(index: PresetIndex(value: entries.count), title: ChatFolderTitle(text: folder.title, entities: [], enableAnimations: false), label: "", preset: filter, canBeReordered: folders.count > 1, canBeDeleted: true, isEditing: state.isEditing, isAllChats: false, isDisabled: false, displayTags: effectiveDisplayTags == true))
+    }
+    entries.append(.listFooter(presentationData.strings.ChatListFolderSettings_EditFoldersInfo))
+    entries.append(.displayTags(effectiveDisplayTags))
+    entries.append(.displayTagsFooter)
+    return entries
 }
 
 private func filtersWithAppliedOrder(filters: [(ChatListFilter, Int)], order: [Int32]?) -> [(ChatListFilter, Int)] {
@@ -320,8 +347,10 @@ public enum ChatListFilterPresetListControllerMode {
     case modal
 }
 
-public func chatListFilterPresetListController(context: AccountContext, mode: ChatListFilterPresetListControllerMode, scrollToTags: Bool = false, focusOnItemTag: ChatListFilterPresetListEntryTag? = nil,  dismissed: (() -> Void)? = nil) -> ViewController {
-    let initialState = ChatListFilterPresetListControllerState()
+// Agentgram
+public func chatListFilterPresetListController(context: AccountContext, mode: ChatListFilterPresetListControllerMode, scrollToTags: Bool = false, focusOnItemTag: ChatListFilterPresetListEntryTag? = nil, showsSuperfolder: Bool = false, dismissed: (() -> Void)? = nil) -> ViewController {
+    var initialState = ChatListFilterPresetListControllerState()
+    initialState.showsSuperfolder = showsSuperfolder
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
     let updateState: ((ChatListFilterPresetListControllerState) -> ChatListFilterPresetListControllerState) -> Void = { f in
@@ -405,8 +434,21 @@ public func chatListFilterPresetListController(context: AccountContext, mode: Ch
             })
         })
     }, openPreset: { preset in
+        // Agentgram
+        if preset.id == Superfolders.filterId {
+            pushControllerImpl?(chatListFilterPresetController(context: context, currentPreset: preset, isSuperfolder: true, updated: { _ in }))
+            return
+        }
+        if Superfolders.isFolderId(preset.id) {
+            pushControllerImpl?(chatListFilterPresetController(context: context, currentPreset: preset, superfolderFolderId: preset.id, updated: { _ in }))
+            return
+        }
         pushControllerImpl?(chatListFilterPresetController(context: context, currentPreset: preset, updated: { _ in }))
     }, addNew: {
+        if stateValue.with({ $0 }).showsSuperfolder {
+            pushControllerImpl?(chatListFilterPresetController(context: context, currentPreset: nil, superfolderFolderId: 0, updated: { _ in }))
+            return
+        }
         let _ = combineLatest(
             queue: Queue.mainQueue(),
             context.engine.data.get(
@@ -458,6 +500,13 @@ public func chatListFilterPresetListController(context: AccountContext, mode: Ch
             return state
         }
     }, removePreset: { id in
+        // Agentgram
+        if Superfolders.isFolderId(id) {
+            Superfolders.update(engine: context.engine, { settings in
+                settings.folders.removeAll(where: { $0.id == id })
+            })
+            return
+        }
         let _ = (context.engine.peers.currentChatListFilters()
         |> take(1)
         |> deliverOnMainQueue).start(next: { filters in
@@ -600,9 +649,13 @@ public func chatListFilterPresetListController(context: AccountContext, mode: Ch
         limits,
         context.engine.data.subscribe(
             TelegramEngine.EngineData.Item.ChatList.FiltersDisplayTags()
-        )
+        // Agentgram
+        ),
+        Superfolders.settings(engine: context.engine)
     )
-    |> map { presentationData, state, filtersWithCountsValue, preferences, updatedFilterOrderValue, suggestedFilters, peer, allLimits, displayTags -> (ItemListControllerState, (ItemListNodeState, Any)) in
+    |> map { presentationData, state, filtersWithCountsValue, preferences, updatedFilterOrderValue, suggestedFilters, peer, allLimits, displayTags, superfolderSettings -> (ItemListControllerState, (ItemListNodeState, Any)) in
+        let showsSuperfolder = state.showsSuperfolder && superfolderSettings.isCreated
+        let superfolderTitle = superfolderSettings.title.isEmpty ? Superfolders.text(.defaultTitle, languageCode: presentationData.strings.primaryComponent.languageCode) : superfolderSettings.title
         var presentationData = presentationData
 
         let updatedTheme = presentationData.theme.withModalBlocksBackground()
@@ -683,8 +736,28 @@ public func chatListFilterPresetListController(context: AccountContext, mode: Ch
             let _ = animateNextShowHideTagsTransition.swap(displayTags)
         }
         
-        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(presentationData.strings.ChatListFolderSettings_Title), leftNavigationButton: leftNavigationButton, rightNavigationButton: rightNavigationButton, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back), animateChanges: false)
-        let entries = chatListFilterPresetListControllerEntries(presentationData: presentationData, state: state, filters: filtersWithCountsValue, updatedFilterOrder: updatedFilterOrderValue, suggestedFilters: suggestedFilters, displayTags: displayTags, isPremium: isPremium, limits: limits, premiumLimits: premiumLimits)
+        // Agentgram
+        // «Edit» for the superfolder's folders: delete and reorder them.
+        var superfolderRightButton: ItemListNavigationButton?
+        if state.isEditing {
+            superfolderRightButton = ItemListNavigationButton(content: .text(presentationData.strings.Common_Done), style: .bold, enabled: true, action: {
+                updateState { state in
+                    var state = state
+                    state.isEditing = false
+                    return state
+                }
+            })
+        } else {
+            superfolderRightButton = ItemListNavigationButton(content: .text(presentationData.strings.Common_Edit), style: .regular, enabled: true, action: {
+                updateState { state in
+                    var state = state
+                    state.isEditing = true
+                    return state
+                }
+            })
+        }
+        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: superfolderSettings.isCreated ? .sectionControl([presentationData.strings.DialogList_Title, superfolderTitle], showsSuperfolder ? 1 : 0) : .text(presentationData.strings.ChatListFolderSettings_Title), leftNavigationButton: leftNavigationButton, rightNavigationButton: showsSuperfolder ? superfolderRightButton : rightNavigationButton, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back), animateChanges: false)
+        let entries = showsSuperfolder ? superfolderFolderEntries(presentationData: presentationData, state: state, folders: superfolderSettings.folders, displayTags: displayTags, isPremium: isPremium) : chatListFilterPresetListControllerEntries(presentationData: presentationData, state: state, filters: filtersWithCountsValue, updatedFilterOrder: updatedFilterOrderValue, suggestedFilters: suggestedFilters, displayTags: displayTags, isPremium: isPremium, limits: limits, premiumLimits: premiumLimits)
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, ensureVisibleItemTag: focusOnItemTag, initialScrollToItem: scrollToTags ? ListViewScrollToItem(index: entries.count - 1, position: .center(.bottom), animated: true, curve: .Spring(duration: 0.4), directionHint: .Down) : nil, animateChanges: true)
         
         return (controllerState, (listState, arguments))
@@ -695,6 +768,15 @@ public func chatListFilterPresetListController(context: AccountContext, mode: Ch
     var previousOrder: [Int32]?
     
     let controller = ItemListController(context: context, state: signal)
+    // Agentgram
+    controller.titleControlValueChanged = { index in
+        updateState { state in
+            var state = state
+            state.showsSuperfolder = index == 1
+            state.isEditing = false
+            return state
+        }
+    }
     controller.isOpaqueWhenInOverlay = true
     controller.blocksBackgroundWhenInOverlay = true
     switch mode {
@@ -719,6 +801,24 @@ public func chatListFilterPresetListController(context: AccountContext, mode: Ch
         let fromEntry = entries[fromIndex]
         guard case let .preset(_, _, _, fromPreset, _, _, _, _, _, _) = fromEntry else {
             return .single(false)
+        }
+        // Agentgram
+        // The superfolder's folders keep their order in its settings; «All Chats» stays first.
+        if Superfolders.isFolderId(fromPreset.id) {
+            var ids = Superfolders.currentSettings(accountPeerId: context.account.peerId).folders.map(\.id)
+            ids.removeAll(where: { $0 == fromPreset.id })
+            var target = ids.count
+            if toIndex < entries.count, case let .preset(_, _, _, preset, _, _, _, _, _, _) = entries[toIndex], let index = ids.firstIndex(of: preset.id) {
+                target = fromIndex < toIndex ? index + 1 : index
+            } else if toIndex < entries.count, case let .preset(_, _, _, preset, _, _, _, _, _, _) = entries[toIndex], case .allChats = preset {
+                target = 0
+            }
+            ids.insert(fromPreset.id, at: min(target, ids.count))
+            Superfolders.update(engine: context.engine, { settings in
+                let folders = settings.folders
+                settings.folders = ids.compactMap { id in folders.first(where: { $0.id == id }) }
+            })
+            return .single(true)
         }
         var referenceFilter: ChatListFilter?
         var beforeAll = false
@@ -781,6 +881,10 @@ public func chatListFilterPresetListController(context: AccountContext, mode: Ch
         }
     })
     controller.setReorderCompleted({ (entries: [ChatListFilterPresetListEntry]) -> Void in
+        // Agentgram
+        if stateValue.with({ $0 }).showsSuperfolder {
+            return
+        }
         let _ = (combineLatest(
             updatedFilterOrder.get() |> take(1),
             context.engine.data.get(TelegramEngine.EngineData.Item.Peer.Peer(id: context.account.peerId))

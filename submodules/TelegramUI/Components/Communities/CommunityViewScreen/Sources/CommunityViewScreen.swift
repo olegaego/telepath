@@ -4,6 +4,8 @@ import AsyncDisplayKit
 import Display
 import AccountContext
 import TelegramCore
+// Agentgram
+import ThreadedBotSessions
 import SwiftSignalKit
 import TelegramPresentationData
 import TelegramUIPreferences
@@ -104,6 +106,8 @@ private enum CommunityViewSection: Int {
     case requestable
     case hidden
 }
+
+// Agentgram: ThreadedBotSession and its list item are in CommunityViewScreen+ThreadedBot.swift
 
 private struct CommunityViewRow: Equatable {
     let peer: EnginePeer
@@ -919,6 +923,14 @@ private final class CommunityViewContentComponent: Component {
     let openPeer: (EnginePeer) -> Void
     let openPendingRequests: () -> Void
     let removePeer: (EnginePeer.Id) -> Void
+    // Agentgram
+    let bot: EnginePeer?
+    let botSessions: [ThreadedBotSession]?
+    let botCollapsed: Bool
+    let botInside: Bool
+    let toggleInside: (Bool) -> Void
+    let openSession: (Int64) -> Void
+    let toggleSessionShown: (Int64) -> Void
 
     init(
         context: AccountContext,
@@ -940,8 +952,23 @@ private final class CommunityViewContentComponent: Component {
         setRequestApproval: @escaping (CommunityPeerRequest, EnginePeer, Bool) -> Void,
         openPeer: @escaping (EnginePeer) -> Void,
         openPendingRequests: @escaping () -> Void,
-        removePeer: @escaping (EnginePeer.Id) -> Void
+        // Agentgram
+        removePeer: @escaping (EnginePeer.Id) -> Void,
+        bot: EnginePeer? = nil,
+        botSessions: [ThreadedBotSession]? = nil,
+        botCollapsed: Bool = false,
+        botInside: Bool = false,
+        toggleInside: @escaping (Bool) -> Void = { _ in },
+        openSession: @escaping (Int64) -> Void = { _ in },
+        toggleSessionShown: @escaping (Int64) -> Void = { _ in }
     ) {
+        self.bot = bot
+        self.botSessions = botSessions
+        self.botCollapsed = botCollapsed
+        self.botInside = botInside
+        self.toggleInside = toggleInside
+        self.openSession = openSession
+        self.toggleSessionShown = toggleSessionShown
         self.context = context
         self.communityId = communityId
         self.mode = mode
@@ -1010,6 +1037,10 @@ private final class CommunityViewContentComponent: Component {
         if lhs.selectionOptions !== rhs.selectionOptions {
             return false
         }
+        // Agentgram
+        if lhs.bot != rhs.bot || lhs.botSessions != rhs.botSessions || lhs.botCollapsed != rhs.botCollapsed || lhs.botInside != rhs.botInside {
+            return false
+        }
         return true
     }
 
@@ -1068,6 +1099,32 @@ private final class CommunityViewContentComponent: Component {
         private func activateChatPreview(item: ChatListItem, sourceNode: ASDisplayNode, gesture: ContextGesture?) {
             guard let component = self.component, let environment = self.environment, let controller = environment.controller() else {
                 gesture?.cancel()
+                return
+            }
+            // Agentgram
+            if let sessions = component.botSessions {
+                gesture?.cancel()
+                if component.botInside || component.botCollapsed {
+                    return
+                }
+                guard case let .peer(peerData) = item.content, let threadId = peerData.threadInfo?.id, let session = sessions.first(where: { $0.threadId == threadId }) else {
+                    return
+                }
+                let presentationData = component.context.sharedContext.currentPresentationData.with { $0 }
+                let actionSheet = ActionSheetController(presentationData: presentationData)
+                actionSheet.setItemGroups([
+                    ActionSheetItemGroup(items: [
+                        ActionSheetTextItem(title: session.info.title),
+                        ActionSheetButtonItem(title: session.shown ? ThreadedBotSessions.text(.removeFromChatList, languageCode: presentationData.strings.primaryComponent.languageCode) : ThreadedBotSessions.text(.showInChatList, languageCode: presentationData.strings.primaryComponent.languageCode), color: .accent, action: { [weak actionSheet] in
+                            actionSheet?.dismissAnimated()
+                            component.toggleSessionShown(threadId)
+                        })
+                    ]),
+                    ActionSheetItemGroup(items: [ActionSheetButtonItem(title: presentationData.strings.Common_Cancel, color: .accent, font: .bold, action: { [weak actionSheet] in
+                        actionSheet?.dismissAnimated()
+                    })])
+                ])
+                controller.present(actionSheet, in: .window(.root))
                 return
             }
             guard case let .peer(peerData) = item.content, let peer = peerData.peer.peer else {
@@ -1135,7 +1192,12 @@ private final class CommunityViewContentComponent: Component {
                 animationCache: component.context.animationCache,
                 animationRenderer: component.context.animationRenderer,
                 activateSearch: {},
-                peerSelected: { [weak self] peer, _, _, _, _ in
+                // Agentgram
+                peerSelected: { [weak self] peer, _, threadId, _, _ in
+                    if let threadId, self?.component?.botSessions != nil {
+                        self?.component?.openSession(threadId)
+                        return
+                    }
                     self?.component?.openPeer(peer)
                 },
                 disabledPeerSelected: { _, _, _ in },
@@ -1684,7 +1746,31 @@ private final class CommunityViewContentComponent: Component {
                         style: .glass,
                         header: nil,
                         footer: nil,
-                        items: [
+                        // Agentgram
+                        items: (component.botSessions == nil ? [] : [
+                            AnyComponentWithIdentity(id: "inside", component: AnyComponent(ListActionItemComponent(
+                                theme: theme,
+                                style: .glass,
+                                title: AnyComponent(MultilineTextComponent(
+                                    text: .plain(NSAttributedString(
+                                        string: ThreadedBotSessions.text(.topicsInside, languageCode: presentationData.strings.primaryComponent.languageCode),
+                                        font: Font.regular(presentationData.listsFontSize.baseDisplaySize),
+                                        textColor: theme.list.itemPrimaryTextColor
+                                    )),
+                                    maximumNumberOfLines: 1
+                                )),
+                                accessory: .toggle(ListActionItemComponent.Toggle(
+                                    style: .regular,
+                                    isOn: component.botInside,
+                                    isInteractive: true,
+                                    isEnabled: true,
+                                    action: { [weak self] value in
+                                        self?.component?.toggleInside(value)
+                                    }
+                                )),
+                                action: nil
+                            )))
+                        ]) + [
                             AnyComponentWithIdentity(id: "collapse", component: AnyComponent(ListActionItemComponent(
                                 theme: theme,
                                 style: .glass,
@@ -1698,7 +1784,8 @@ private final class CommunityViewContentComponent: Component {
                                 )),
                                 accessory: .toggle(ListActionItemComponent.Toggle(
                                     style: .regular,
-                                    isOn: component.community?.collapsedInDialogs == true,
+                                    // Agentgram
+                                    isOn: component.botSessions != nil ? component.botCollapsed : component.community?.collapsedInDialogs == true,
                                     isInteractive: true,
                                     isEnabled: true,
                                     action: { [weak self] value in
@@ -1707,7 +1794,8 @@ private final class CommunityViewContentComponent: Component {
                                 )),
                                 action: nil
                             )))
-                        ]
+                        // Agentgram
+                        ].filter { component.botSessions == nil || !component.botInside || $0.id != AnyHashable("collapse") }
                     )),
                     environment: {},
                     containerSize: CGSize(width: contentWidth, height: 10000.0)
@@ -1724,7 +1812,8 @@ private final class CommunityViewContentComponent: Component {
                     transition: transition,
                     component: AnyComponent(MultilineTextComponent(
                         text: .plain(NSAttributedString(
-                            string: presentationData.strings.Community_View_ShowAsOneChatInfo,
+                            // Agentgram
+                            string: component.botSessions != nil ? (component.botInside ? ThreadedBotSessions.text(.topicsInsideInfo, languageCode: presentationData.strings.primaryComponent.languageCode) : ThreadedBotSessions.text(.listInfo, languageCode: presentationData.strings.primaryComponent.languageCode)) : presentationData.strings.Community_View_ShowAsOneChatInfo,
                             font: Font.regular(13.0),
                             textColor: theme.list.freeTextColor
                         )),
@@ -1743,6 +1832,64 @@ private final class CommunityViewContentComponent: Component {
             } else {
                 self.collapseSection.view?.removeFromSuperview()
                 self.collapseFooter.view?.removeFromSuperview()
+            }
+
+            // Agentgram: a Threaded Mode bot lists its sessions here instead of a community's chats
+            if let sessions = component.botSessions, let bot = component.bot {
+                let chatListPresentationData = ChatListPresentationData(theme: theme, fontSize: presentationData.listsFontSize, strings: presentationData.strings, dateTimeFormat: presentationData.dateTimeFormat, nameSortOrder: presentationData.nameSortOrder, nameDisplayOrder: presentationData.nameDisplayOrder, disableAnimations: true)
+                let interaction = self.makeInteraction(component: component)
+                let groups: [(CommunityViewSection, String, Bool?)] = component.botInside || component.botCollapsed ? [(.joined, ThreadedBotSessions.text(.topics, languageCode: presentationData.strings.primaryComponent.languageCode), nil), (.visible, "", false)] : [(.joined, ThreadedBotSessions.text(.inChatList, languageCode: presentationData.strings.primaryComponent.languageCode), true), (.visible, ThreadedBotSessions.text(.otherTopics, languageCode: presentationData.strings.primaryComponent.languageCode), false)]
+                for (index, (section, title, shown)) in groups.enumerated() {
+                    let part = index == 1 && groups[0].2 == nil ? [] : (shown.flatMap { shown in sessions.filter { $0.shown == shown } } ?? sessions)
+                    guard !part.isEmpty else {
+                        self.sectionViews[section]?.view?.removeFromSuperview()
+                        continue
+                    }
+                    let sectionView: ComponentView<Empty>
+                    if let current = self.sectionViews[section] {
+                        sectionView = current
+                    } else {
+                        sectionView = ComponentView<Empty>()
+                        self.sectionViews[section] = sectionView
+                    }
+                    let avatarDiameter = min(60.0, floor(presentationData.listsFontSize.baseDisplaySize * 60.0 / 17.0))
+                    let items: [AnyComponentWithIdentity<Empty>] = part.map { session in
+                        return AnyComponentWithIdentity(id: session.threadId, component: AnyComponent(ListItemComponentAdaptor(
+                            itemGenerator: ThreadedBotSessionItemGenerator(context: component.context, presentationData: chatListPresentationData, bot: bot, session: session, interaction: interaction),
+                            params: ListViewItemLayoutParams(width: contentWidth, leftInset: 0.0, rightInset: 0.0, availableHeight: 10000.0, isStandalone: true),
+                            separatorInset: 10.0 + 8.0 + avatarDiameter + 2.0,
+                            separatorAlpha: 1.0,
+                            action: {
+                                component.openSession(session.threadId)
+                            },
+                            actionMode: .gesture
+                        )))
+                    }
+                    let size = sectionView.update(
+                        transition: transition,
+                        component: AnyComponent(ListSectionComponent(
+                            theme: theme,
+                            style: component.mode.usesPlainStyle ? .plain : .glass,
+                            header: AnyComponent(MultilineTextComponent(
+                                text: .plain(NSAttributedString(string: title, font: Font.regular(presentationData.listsFontSize.itemListBaseHeaderFontSize), textColor: theme.list.freeTextColor)),
+                                maximumNumberOfLines: 1
+                            )),
+                            footer: nil,
+                            items: items
+                        )),
+                        environment: {},
+                        containerSize: CGSize(width: contentWidth, height: 10000.0)
+                    )
+                    if let view = sectionView.view {
+                        if view.superview == nil {
+                            self.addSubview(view)
+                        }
+                        transition.setFrame(view: view, frame: CGRect(origin: CGPoint(x: sideInset, y: contentHeight), size: size))
+                    }
+                    contentHeight += size.height + sectionSpacing
+                }
+                contentHeight += 16.0 + 60.0
+                return CGSize(width: availableSize.width, height: contentHeight)
             }
 
             if isAdmin && component.selectionOptions == nil, let pendingRequestsSectionSize = self.updatePendingRequestsSection(
@@ -1909,6 +2056,12 @@ private final class CommunityViewScreenComponent: Component {
         private var didApplyInitialOffset = false
 
         private var community: TelegramCommunity?
+        // Agentgram
+        // set when the screen shows a Threaded Mode bot's sessions instead of a community
+        private var bot: EnginePeer?
+        private var botSessions: [ThreadedBotSession]?
+        private var botCollapsed = false
+        private var botInside = false
         private var cachedData: CachedCommunityData?
         private var peers: [EnginePeer.Id: EnginePeer] = [:]
         private var cachedPeerData: [EnginePeer.Id: EngineCachedPeerData] = [:]
@@ -2279,6 +2432,36 @@ private final class CommunityViewScreenComponent: Component {
         }
 
         private func ensureDataSignal(component: CommunityViewScreenComponent) {
+            // Agentgram
+            if component.communityId.namespace == Namespaces.Peer.CloudUser {
+                if self.dataDisposable == nil {
+                    let botId = component.communityId
+                    let topics = chatListViewForLocationPlain(chatListLocation: .forum(peerId: botId), location: .initial(count: 100, filter: nil), account: component.context.account, shouldLoadCanMessagePeer: false)
+                    self.dataDisposable = (combineLatest(queue: .mainQueue(),
+                        component.context.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.Peer(id: botId)),
+                        topics,
+                        ThreadedBotSessions.settings(engine: component.context.engine)
+                    )).startStrict(next: { [weak self] peer, update, threadedBotSettings in
+                        guard let self else {
+                            return
+                        }
+                        let transition: ComponentTransition = self.botSessions == nil ? .immediate : .spring(duration: 0.35)
+                        let settings = threadedBotSettings.bot(botId)
+                        self.bot = peer
+                        self.botCollapsed = settings.showAsOneChat
+                        self.botInside = settings.topicsInside
+                        self.botSessions = update.list.items.sorted(by: { $0.index > $1.index }).compactMap { item -> ThreadedBotSession? in
+                            guard case let .forum(threadId) = item.id, let data = item.threadData else {
+                                return nil
+                            }
+                            return ThreadedBotSession(threadId: threadId, info: data.info, index: item.index, messages: item.messages, readCounters: item.readCounters, shown: !settings.hiddenTopicIds.contains(threadId), activity: nil)
+                        }
+                        self.didReceiveInitialData = true
+                        self.state?.updated(transition: transition)
+                    })
+                }
+                return
+            }
             if self.dataDisposable == nil {
                 self.dataDisposable = (component.context.engine.data.subscribe(
                     TelegramEngine.EngineData.Item.Peer.Peer(id: component.communityId),
@@ -2354,6 +2537,17 @@ private final class CommunityViewScreenComponent: Component {
             let controller = component.context.sharedContext.makeCommunityRequestsScreen(context: component.context, communityId: component.communityId, existingContext: self.pendingRequestsContext)
             controller.navigationPresentation = .modal
             environment.controller()?.push(controller)
+        }
+
+        // Agentgram
+        private func openBotSession(_ threadId: Int64) {
+            guard let component = self.component, let navigationController = self.environment?.controller()?.navigationController as? NavigationController else {
+                return
+            }
+            if component.mode.usesSheetPresentation {
+                self.dismiss(animated: true)
+            }
+            let _ = component.context.sharedContext.navigateToForumThread(context: component.context, peerId: component.communityId, threadId: threadId, messageId: nil, navigationController: navigationController, activateInput: nil, scrollToEndIfExists: false, keepStack: .never, animated: true).startStandalone()
         }
 
         private func openPeer(_ peer: EnginePeer) {
@@ -2728,6 +2922,11 @@ private final class CommunityViewScreenComponent: Component {
             guard let component = self.component else {
                 return
             }
+            // Agentgram
+            if self.botSessions != nil {
+                ThreadedBotSessions.updateBot(engine: component.context.engine, botId: component.communityId, { $0.showAsOneChat = collapsed })
+                return
+            }
             self.state?.updated(transition: .spring(duration: 0.35))
 
             self.actionDisposable.set((component.context.engine.peers.toggleCommunityCollapsedInDialogs(
@@ -2850,7 +3049,8 @@ private final class CommunityViewScreenComponent: Component {
                 theme = environment.theme
             }
 
-            let title = self.community?.title ?? environment.strings.Community_View_Title
+            // Agentgram
+            let title = self.bot?.compactDisplayTitle ?? self.community?.title ?? environment.strings.Community_View_Title
                         
             let leftButton: NavigationBarComponent.Button?
             let backPressed: (() -> Void)?
@@ -2890,7 +3090,8 @@ private final class CommunityViewScreenComponent: Component {
             }
             
             var rightButtons: [NavigationBarComponent.Button] = []
-            if component.mode.usesSheetPresentation && !component.mode.isPreview && component.selectionOptions == nil {
+            // Agentgram
+            if component.mode.usesSheetPresentation && !component.mode.isPreview && component.selectionOptions == nil && self.botSessions == nil {
                 rightButtons.append(NavigationBarComponent.Button(id: "search",
                     content: .icon(imageName: "Navigation/Search"),
                     action: { [weak self] _ in
@@ -3140,6 +3341,32 @@ private final class CommunityViewScreenComponent: Component {
                 },
                 removePeer: { [weak self] peerId in
                     self?.removePeer(peerId)
+                // Agentgram
+                },
+                bot: self.bot,
+                botSessions: self.botSessions,
+                botCollapsed: self.botCollapsed,
+                botInside: self.botInside,
+                toggleInside: { [weak self] value in
+                    guard let self, let component = self.component else {
+                        return
+                    }
+                    ThreadedBotSessions.updateBot(engine: component.context.engine, botId: component.communityId, { $0.topicsInside = value })
+                },
+                openSession: { [weak self] threadId in
+                    self?.openBotSession(threadId)
+                },
+                toggleSessionShown: { [weak self] threadId in
+                    guard let self, let component = self.component else {
+                        return
+                    }
+                    ThreadedBotSessions.updateBot(engine: component.context.engine, botId: component.communityId, { bot in
+                        if bot.hiddenTopicIds.contains(threadId) {
+                            bot.hiddenTopicIds.removeAll(where: { $0 == threadId })
+                        } else {
+                            bot.hiddenTopicIds.append(threadId)
+                        }
+                    })
                 }
             )
         }

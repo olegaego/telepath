@@ -5,6 +5,8 @@ import Display
 import AsyncDisplayKit
 import SwiftSignalKit
 import TelegramCore
+// Agentgram
+import Superfolders
 import TelegramPresentationData
 import TelegramUIPreferences
 import AccountContext
@@ -124,6 +126,8 @@ public final class ChatListNodeInteraction {
     let openStarsTopup: (Int64?) -> Void
     let editPeer: (ChatListItem) -> Void
     let openWebApp: (TelegramUser) -> Void
+    // Agentgram
+    let startBotSession: (EnginePeer.Id) -> Void
     let openPhotoSetup: () -> Void
     let openAdInfo: (ASDisplayNode, AdPeer) -> Void
     let openAccountFreezeInfo: () -> Void
@@ -187,6 +191,8 @@ public final class ChatListNodeInteraction {
         openStarsTopup: @escaping (Int64?) -> Void,
         editPeer: @escaping (ChatListItem) -> Void,
         openWebApp: @escaping (TelegramUser) -> Void,
+        // Agentgram
+        startBotSession: @escaping (EnginePeer.Id) -> Void = { _ in },
         openPhotoSetup: @escaping () -> Void,
         openAdInfo: @escaping (ASDisplayNode, AdPeer) -> Void,
         openAccountFreezeInfo: @escaping () -> Void,
@@ -237,6 +243,8 @@ public final class ChatListNodeInteraction {
         self.openStarsTopup = openStarsTopup
         self.editPeer = editPeer
         self.openWebApp = openWebApp
+        // Agentgram
+        self.startBotSession = startBotSession
         self.openPhotoSetup = openPhotoSetup
         self.openAdInfo = openAdInfo
         self.openAccountFreezeInfo = openAccountFreezeInfo
@@ -635,7 +643,8 @@ private func mappedInsertEntries(context: AccountContext, nodeInteraction: ChatL
                     case let .forum(_, _, threadIdValue, _, _):
                         threadId = threadIdValue
                     case .chatList:
-                        break
+                        // Agentgram: a session of a Threaded Mode bot sits in the chat list under the bot: send into its topic
+                        threadId = threadInfo?.id
                     }
                 
                     var isForum = false
@@ -957,7 +966,8 @@ private func mappedUpdateEntries(context: AccountContext, nodeInteraction: ChatL
                         case let .forum(_, _, threadIdValue, _, _):
                             threadId = threadIdValue
                         case .chatList:
-                            break
+                            // Agentgram: a session of a Threaded Mode bot sits in the chat list under the bot: send into its topic
+                            threadId = threadInfo?.id
                         }
                         
                         var isForum = false
@@ -1268,6 +1278,8 @@ public final class ChatListNode: ListViewImpl {
     public var openPremiumManagement: (() -> Void)?
     public var openStarsTopup: ((Int64?) -> Void)?
     public var openWebApp: ((TelegramUser) -> Void)?
+    // Agentgram
+    public var startBotSession: ((EnginePeer.Id) -> Void)?
     public var openPhotoSetup: (() -> Void)?
     public var openAdInfo: ((ASDisplayNode, AdPeer) -> Void)?
     public var openAccountFreezeInfo: (() -> Void)?
@@ -1595,7 +1607,8 @@ public final class ChatListNode: ListViewImpl {
                     } else {
                         location = .group(groupId._asGroup())
                     }
-                    let _ = (context.engine.peers.toggleItemPinned(location: location, itemId: itemId)
+                    // Agentgram
+                    let _ = (chatListToggleItemPinned(engine: context.engine, location: location, itemId: itemId)
                     |> deliverOnMainQueue).startStandalone(next: { result in
                         if let strongSelf = self {
                             switch result {
@@ -1914,6 +1927,9 @@ public final class ChatListNode: ListViewImpl {
                 return
             }
             self.openWebApp?(user)
+        // Agentgram
+        }, startBotSession: { [weak self] peerId in
+            self?.startBotSession?(peerId)
         }, openPhotoSetup: { [weak self] in
             guard let self else {
                 return
@@ -2164,8 +2180,16 @@ public final class ChatListNode: ListViewImpl {
         
         let chatListFilters: Signal<[ChatListFilter]?, NoError>
         if case .chatList = mode {
+            // Agentgram
+            // Inside the superfolder the tags are its own folders.
+            let tagFolders: Signal<[ChatListFilter], NoError>
+            if Superfolders.isOwnFilterId(chatListFilter?.id) {
+                tagFolders = Superfolders.settings(engine: context.engine) |> map { $0.folders.map { Superfolders.filter(folder: $0) } }
+            } else {
+                tagFolders = context.engine.peers.updatedChatListFilters()
+            }
             chatListFilters = combineLatest(queue: .mainQueue(),
-                context.engine.peers.updatedChatListFilters(),
+                tagFolders,
                 context.engine.data.subscribe(
                     TelegramEngine.EngineData.Item.ChatList.FiltersDisplayTags()
                 )
@@ -2766,6 +2790,7 @@ public final class ChatListNode: ListViewImpl {
         let engine = context.engine
         let previousPeerCache = Atomic<[EnginePeer.Id: EnginePeer]>(value: [:])
         let previousActivities = Atomic<ChatListNodePeerInputActivities?>(value: nil)
+        AgentgramAgentStatus.start()
         self.activityStatusesDisposable = (context.account.allPeerInputActivities()
         |> mapToSignal { activitiesByPeerId -> Signal<[ChatListNodePeerInputActivities.ItemId: [(EnginePeer, PeerInputActivity)]], NoError> in
             var activitiesByPeerId = activitiesByPeerId
@@ -2789,8 +2814,13 @@ public final class ChatListNode: ListViewImpl {
                     var threadId: Int64?
                     switch location {
                     case .chatList:
-                        guard case .global = chatPeerId.category else {
-                            continue
+                        // Agentgram: a Threaded Mode bot's sessions sit in the main list, so its «typing…» in a topic goes to that row
+                        if case let .thread(threadIdValue) = chatPeerId.category, chatPeerId.peerId.namespace == Namespaces.Peer.CloudUser {
+                            threadId = threadIdValue
+                        } else {
+                            guard case .global = chatPeerId.category else {
+                                continue
+                            }
                         }
                     case let .forum(peerId):
                         if chatPeerId.peerId != peerId {
@@ -2837,6 +2867,11 @@ public final class ChatListNode: ListViewImpl {
                         let itemId: ChatListNodePeerInputActivities.ItemId
                         switch location {
                         case .chatList:
+                            // Agentgram: a bot's «typing…» in a topic, to the row of that session in the main list
+                            if case let .thread(threadIdValue) = chatPeerId.category, chatPeerId.peerId.namespace == Namespaces.Peer.CloudUser {
+                                itemId = ChatListNodePeerInputActivities.ItemId(peerId: chatPeerId.peerId, threadId: threadIdValue)
+                                break
+                            }
                             guard case .global = chatPeerId.category else {
                                 continue
                             }
@@ -2870,6 +2905,18 @@ public final class ChatListNode: ListViewImpl {
                     let _ = previousPeerCache.swap(peerCache)
                     return result
                 }
+            }
+        }
+        |> mapToSignal { activities -> Signal<[ChatListNodePeerInputActivities.ItemId: [(EnginePeer, PeerInputActivity)]], NoError> in
+            // Agentgram: what the agent sessions are doing, as the rows' «activity»
+            let russian = context.sharedContext.currentPresentationData.with({ $0 }).strings.baseLanguageCode == "ru"
+            return AgentgramAgentStatus.activities(engine: context.engine, russian: russian)
+            |> map { ours -> [ChatListNodePeerInputActivities.ItemId: [(EnginePeer, PeerInputActivity)]] in
+                var merged = activities
+                for (itemId, value) in ours {
+                    merged[itemId] = value
+                }
+                return merged
             }
         }
         |> map { activities -> ChatListNodePeerInputActivities? in
@@ -2963,7 +3010,8 @@ public final class ChatListNode: ListViewImpl {
                     }
                     
                     let engine = strongSelf.context.engine
-                    return engine.peers.getPinnedItemIds(location: location)
+                    // Agentgram
+                    return chatListPinnedItemIds(engine: engine, location: location)
                     |> mapToSignal { itemIds -> Signal<Bool, NoError> in
                         var itemIds = itemIds
                         
@@ -3000,7 +3048,8 @@ public final class ChatListNode: ListViewImpl {
                             } else {
                                 itemIds.append(itemId)
                             }
-                            return engine.peers.reorderPinnedItemIds(location: location, itemIds: itemIds)
+                            // Agentgram
+                            return chatListReorderPinnedItemIds(engine: engine, location: location, itemIds: itemIds)
                         } else {
                             return .single(false)
                         }
@@ -3289,6 +3338,24 @@ public final class ChatListNode: ListViewImpl {
     }
     
     private func resetFilter() {
+        // Agentgram
+        // The superfolder and its folders are kept on the device, not among the account's folders.
+        if let chatListFilter = self.chatListFilter, Superfolders.isOwnFilterId(chatListFilter.id) {
+            let filterId = chatListFilter.id
+            self.updatedFilterDisposable.set((Superfolders.settings(engine: self.context.engine)
+            |> map { settings -> ChatListFilter? in
+                return Superfolders.filters(settings: settings).first(where: { $0.id == filterId })
+            }
+            |> deliverOnMainQueue).startStrict(next: { [weak self] updatedFilter in
+                guard let self, let updatedFilter else {
+                    return
+                }
+                if self.chatListFilter != updatedFilter {
+                    self.chatListFilter = updatedFilter
+                }
+            }))
+            return
+        }
         if let chatListFilter = self.chatListFilter, chatListFilter.id != Int32.max {
             self.updatedFilterDisposable.set((self.context.engine.peers.updatedChatListFilters()
             |> map { filters -> ChatListFilter? in

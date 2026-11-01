@@ -10,6 +10,8 @@ swift_library(
         "-warnings-as-errors",
     ],
     deps = [
+        # Agentgram
+        "//submodules/TelegramUI/Components/ThreadedBotSessions",
         "//submodules/TelegramUI/Components/SideColumnLayout",
         "//submodules/AccountContext",
         "//submodules/AlertUI",

@@ -1650,7 +1650,8 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         #if DEBUG
         sandbox = true
         #else
-        sandbox = false
+        // Agentgram: a release build signed with a development profile gets sandbox APNs tokens
+        sandbox = AgentgramPush.apsIsDevelopment
         #endif
         
         let settings = self.accountManager.sharedData(keys: [ApplicationSpecificSharedDataKeys.inAppNotificationSettings])
@@ -1706,7 +1707,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                 
                 if !activeProductionUserIds.contains(account.account.peerId.id) && !activeTestingUserIds.contains(account.account.peerId.id) {
                     if let apsNotificationToken {
-                        appliedAps = account.engine.accountData.unregisterNotificationToken(token: apsNotificationToken, type: .aps(encrypt: false), otherAccountUserIds: (account.account.testingEnvironment ? allTestingUserIds : allProductionUserIds).filter({ $0 != account.account.peerId.id }))
+                        appliedAps = account.engine.accountData.unregisterNotificationToken(token: apsNotificationToken, type: AgentgramPush.tokenType(apnsToken: apsNotificationToken, sandbox: sandbox) ?? .aps(encrypt: false), otherAccountUserIds: (account.account.testingEnvironment ? allTestingUserIds : allProductionUserIds).filter({ $0 != account.account.peerId.id }))
                         |> map { _ -> Bool in
                         }
                         |> then(.single(true))
@@ -1724,7 +1725,7 @@ public final class SharedAccountContextImpl: SharedAccountContext {
                     }
                 } else {
                     if let apsNotificationToken {
-                        appliedAps = account.engine.accountData.registerNotificationToken(token: apsNotificationToken, type: .aps(encrypt: true), sandbox: sandbox, otherAccountUserIds: (account.account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.account.peerId.id }), excludeMutedChats: !settings.includeMuted)
+                        appliedAps = account.engine.accountData.registerNotificationToken(token: apsNotificationToken, type: AgentgramPush.tokenType(apnsToken: apsNotificationToken, sandbox: sandbox) ?? .aps(encrypt: true), sandbox: sandbox, otherAccountUserIds: (account.account.testingEnvironment ? activeTestingUserIds : activeProductionUserIds).filter({ $0 != account.account.peerId.id }), excludeMutedChats: !settings.includeMuted)
                     } else {
                         appliedAps = .single(true)
                     }
@@ -1794,13 +1795,14 @@ public final class SharedAccountContextImpl: SharedAccountContext {
         if let rootController = self.mainWindow?.viewController as? TelegramRootController {
             if let tabsController = rootController.viewControllers.first as? TabBarController {
                 for controller in tabsController.controllers {
-                    if let controller = controller as? ChatListController {
+                    // Agentgram
+                    if let controller = controller as? ChatListController, (controller as? ChatListControllerImpl)?.isSuperfolder != true {
                         chatsBadge = controller.tabBarItem.badgeValue
                     }
                 }
                 
                 if let chatListController = chatListController {
-                    if let index = tabsController.controllers.firstIndex(where: { $0 is ChatListController }) {
+                    if let index = tabsController.controllers.firstIndex(where: { ($0 as? ChatListController) != nil && ($0 as? ChatListControllerImpl)?.isSuperfolder != true }) {
                         var controllers = tabsController.controllers
                         controllers[index] = chatListController
                         tabsController.setControllers(controllers, selectedIndex: index)

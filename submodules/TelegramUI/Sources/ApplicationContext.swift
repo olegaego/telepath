@@ -324,6 +324,10 @@ final class AuthorizedApplicationContext {
             }
 
             if let strongSelf = self, let (messages, _, notify, threadData) = messageList.last, let firstMessage = messages.first {
+                // Agentgram: the agent helper's draft and its «in the queue» line are statuses, not news: no banner, no sound
+                if AgentgramAgentStatus.isDraft(EngineMessage(firstMessage)) || (AgentgramAgentStatus.isAgent(firstMessage.id.peerId) && firstMessage.text == "Закончу текущее и возьмусь.") {
+                    return
+                }
                 if UIApplication.shared.applicationState == .active {
                     let chatLocation: NavigateToChatControllerParams.Location
                     if let _ = threadData, let threadId = firstMessage.threadId {

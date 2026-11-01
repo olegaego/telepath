@@ -21,7 +21,11 @@ class BuildConfiguration:
         app_specific_url_scheme,
         premium_iap_product_id,
         enable_siri,
-        enable_icloud
+        # Agentgram
+        enable_icloud,
+        push_relay_url='',
+        push_relay_key='',
+        push_relay_auth=''
     ):
         self.bundle_id = bundle_id
         self.api_id = api_id
@@ -35,6 +39,11 @@ class BuildConfiguration:
         self.premium_iap_product_id = premium_iap_product_id
         self.enable_siri = enable_siri
         self.enable_icloud = enable_icloud
+        # Agentgram
+        # Agentgram: the Web Push relay the app gives to Telegram (empty: pushes as in Telegram)
+        self.push_relay_url = push_relay_url
+        self.push_relay_key = push_relay_key
+        self.push_relay_auth = push_relay_auth
 
     def write_to_variables_file(self, bazel_path, use_xcode_managed_codesigning, aps_environment, path):
         string = ''
@@ -54,6 +63,10 @@ class BuildConfiguration:
         string += 'telegram_enable_siri = {}\n'.format(self.enable_siri)
         string += 'telegram_enable_icloud = {}\n'.format(self.enable_icloud)
         string += 'telegram_enable_watch = True\n'
+        # Agentgram
+        string += 'agentgram_push_relay_url = "{}"\n'.format(self.push_relay_url)
+        string += 'agentgram_push_relay_key = "{}"\n'.format(self.push_relay_key)
+        string += 'agentgram_push_relay_auth = "{}"\n'.format(self.push_relay_auth)
 
         if os.path.exists(path):
             os.remove(path)
@@ -96,7 +109,11 @@ def build_configuration_from_json(path):
             app_specific_url_scheme=configuration_dict['app_specific_url_scheme'],
             premium_iap_product_id=configuration_dict['premium_iap_product_id'],
             enable_siri=configuration_dict['enable_siri'],
-            enable_icloud=configuration_dict['enable_icloud']
+            # Agentgram
+            enable_icloud=configuration_dict['enable_icloud'],
+            push_relay_url=configuration_dict.get('push_relay_url', ''),
+            push_relay_key=configuration_dict.get('push_relay_key', ''),
+            push_relay_auth=configuration_dict.get('push_relay_auth', '')
         )
 
 

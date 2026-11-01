@@ -11,6 +11,8 @@ import ChatMessageItemCommon
 import TextFormat
 import Markdown
 import Display
+// Agentgram
+import ChatListUI
 import TelegramStringFormatting
 
 struct ChatHistoryEntriesForViewState {
@@ -151,6 +153,10 @@ func chatHistoryEntriesForView(
         }
         
         if pendingRemovedMessages.contains(message.id) {
+            continue
+        }
+        // Agentgram: the helper's draft in an agent's topic is shown as the work panel, not as a message
+        if AgentgramAgentStatus.isDraft(EngineMessage(message)) {
             continue
         }
         

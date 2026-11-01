@@ -13,6 +13,7 @@ import DeviceAccess
 import TelegramStringFormatting
 import PeerNameColorItem
 import WalletContext
+import AgentgramSettingsUI
 
 enum SettingsSection: Int, CaseIterable {
     case edit
@@ -151,6 +152,10 @@ func settingsItems(data: PeerInfoScreenData?, context: AccountContext, presentat
         
         items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 0, text: presentationData.strings.Settings_MyProfile, icon: PresentationResourcesSettings.myProfile, action: {
             interaction.openSettings(.profile)
+        }))
+        // Agentgram: its section, right under the profile
+        items[.myProfile]!.append(PeerInfoScreenDisclosureItem(id: 1, text: "Telepath", icon: agentgramSettingsIcon, action: {
+            interaction.openSettings(.agentgram)
         }))
         
         if WalletConfiguration.with(appConfiguration: context.currentAppConfiguration.with { $0 }).isAvailable {

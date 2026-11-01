@@ -84,3 +84,9 @@ tools/sim-watcher/dist/
 submodules/TelegramApi/Sources/SwiftPMGenerated/
 submodules/TelegramApi/ObjC/SwiftPMGenerated/
 submodules/TelegramApi/Tests/SwiftPMGenerated/
+
+# Agentgram: the build's settings with api_id and keys stay on the Mac
+build-system/agentgram-configuration.json
+# whisper-cli is built from whisper.cpp by helper/whisper/build-whisper-cli.sh, not kept in git
+helper/whisper/whisper-cli
+helper/dist/

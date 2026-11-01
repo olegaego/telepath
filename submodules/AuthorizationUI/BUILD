@@ -32,6 +32,7 @@ swift_library(
         "//submodules/SolidRoundedButtonNode:SolidRoundedButtonNode",
         "//submodules/ImageCompression:ImageCompression",
         "//submodules/RMIntro:RMIntro",
+        "//submodules/AgentgramIntro:AgentgramIntro",
         "//submodules/QrCode:QrCode",
         "//submodules/PhoneInputNode:PhoneInputNode",
         "//submodules/CodeInputView:CodeInputView",

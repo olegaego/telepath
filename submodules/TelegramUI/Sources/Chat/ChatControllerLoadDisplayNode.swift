@@ -5069,7 +5069,40 @@ extension ChatControllerImpl {
                 
                 if let activitySpace = activitySpace, let peerId = peerId {
                     self.peerInputActivitiesDisposable?.dispose()
-                    self.peerInputActivitiesDisposable = (self.context.account.peerInputActivities(peerId: activitySpace)
+                    // Agentgram: in an agent's session the line under the title says what the session does (from our server)
+                    let agentStatus: Signal<PeerInputActivity?, NoError>
+                    if case let .replyThread(replyThreadMessage) = self.chatLocation, replyThreadMessage.peerId.namespace == Namespaces.Peer.CloudUser {
+                        AgentgramAgentStatus.start()
+                        let russian = self.presentationData.strings.baseLanguageCode == "ru"
+                        agentStatus = AgentgramAgentStatus.titleActivity(bot: replyThreadMessage.peerId, thread: replyThreadMessage.threadId, russian: russian)
+                    } else if case let .peer(botId) = self.chatLocation, AgentgramAgentStatus.isAgent(botId) {
+                        // a bot without topics: the whole chat is one session, thread 0
+                        let russian = self.presentationData.strings.baseLanguageCode == "ru"
+                        agentStatus = AgentgramAgentStatus.titleActivity(bot: botId, thread: 0, russian: russian)
+                    } else {
+                        agentStatus = .single(nil)
+                    }
+                    // the panel of a working session comes and goes with the turn
+                    var agentWorking = false
+                    let typingLocation = self.chatLocation
+                    self.peerInputActivitiesDisposable = (combineLatest(self.context.account.peerInputActivities(peerId: activitySpace), agentStatus)
+                    |> map { activities, ours -> [(EnginePeer.Id, PeerInputActivity)] in
+                        // the bot types in this topic: its session works (the panel with «СТОП» shows even with statuses off)
+                        if case let .replyThread(replyThreadMessage) = typingLocation, activities.contains(where: { $0.0 == replyThreadMessage.peerId && $0.1 == .typingText }) {
+                            Queue.mainQueue().async {
+                                AgentgramAgentStatus.noteTyping(bot: replyThreadMessage.peerId, thread: replyThreadMessage.threadId)
+                            }
+                        } else if case let .peer(botId) = typingLocation, activities.contains(where: { $0.0 == botId && $0.1 == .typingText }) {
+                            Queue.mainQueue().async {
+                                AgentgramAgentStatus.noteTyping(bot: botId, thread: 0)
+                            }
+                        }
+                        // ours when the session works or failed; a resting one gives way to Telegram's own «typing…»
+                        if let ours, let custom = AgentgramAgentStatus.custom(ours), custom.kind != .settled || activities.isEmpty {
+                            return [(peerId, ours)]
+                        }
+                        return activities
+                    }
                     |> mapToSignal { activities -> Signal<[(EnginePeer, PeerInputActivity)], NoError> in
                         var foundAllPeers = true
                         var cachedResult: [(EnginePeer, PeerInputActivity)] = []
@@ -5105,9 +5138,24 @@ extension ChatControllerImpl {
                     }
                     |> deliverOnMainQueue).startStrict(next: { [weak self] activities in
                         if let strongSelf = self {
+                            var session: (EnginePeer.Id, Int64)?
+                            if case let .replyThread(replyThreadMessage) = strongSelf.chatLocation, replyThreadMessage.peerId.namespace == Namespaces.Peer.CloudUser {
+                                session = (replyThreadMessage.peerId, replyThreadMessage.threadId)
+                            } else if case let .peer(botId) = strongSelf.chatLocation, AgentgramAgentStatus.isAgent(botId) {
+                                session = (botId, 0)
+                            }
+                            if let session {
+                                let working = AgentgramAgentStatus.session(bot: session.0, thread: session.1)?.working ?? false
+                                if working != agentWorking {
+                                    agentWorking = working
+                                    strongSelf.updateChatPresentationInterfaceState(animated: true, interactive: false, { $0 })
+                                }
+                            }
                             let displayActivities = activities.filter({
                                 switch $0.1 {
-                                    case .speakingInGroupCall, .interactingWithEmoji:
+                                    case .interactingWithEmoji:
+                                        return AgentgramAgentStatus.custom($0.1) != nil
+                                    case .speakingInGroupCall:
                                         return false
                                     default:
                                         return true

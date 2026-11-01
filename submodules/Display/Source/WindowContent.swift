@@ -281,9 +281,8 @@ public final class WindowHostView {
     /// Multi-display devices only: the fold while the system reports it active, in `eventView`
     /// coordinates. Nil before iOS 27.1.
     fileprivate var activeDivision: CGRect? {
-        if #available(iOS 27.1, *) {
-            return self.eventView.reservedRegions(kind: .division).first(where: \.isActive)?.frame
-        }
+        // Agentgram: built with the iOS 27.0 SDK (Xcode 27.0), which has no reservedRegions; the fold exists only on
+        // multi-display devices. Put back when the Mac has Xcode 27.1.
         return nil
     }
     

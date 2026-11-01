@@ -6453,6 +6453,13 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
         
         self.navigationItem.titleView = self.chatTitleView
         self.chatTitleView?.tapAction = { [weak self] in
+            // Agentgram: in an agent's session the title opens the session's sheet (context, limits, steps), no «СТОП»
+            if let self, case let .replyThread(message) = self.chatLocation, message.peerId.namespace == Namespaces.Peer.CloudUser, AgentgramAgentStatus.isAgent(message.peerId) {
+                let threadData = self.presentationInterfaceState.threadData
+                let screen = AgentgramAgentSheetScreen(context: self.context, bot: message.peerId, thread: message.threadId, title: threadData?.title ?? "", iconColor: threadData?.iconColor ?? 0x6FB9F0, iconFileId: threadData?.icon, russian: self.presentationData.strings.baseLanguageCode == "ru", showsStop: false)
+                self.present(screen, in: .window(.root))
+                return
+            }
             self?.openChatInfoFromHeader = true
             self?.navigationButtonAction(.openChatInfo(expandAvatar: false, section: nil))
         }
@@ -9194,6 +9201,8 @@ public final class ChatControllerImpl: TelegramBaseController, ChatController, G
         guard let peerId = self.chatLocation.peerId else {
             return
         }
+
+// Agentgram
 
         let _ = (self.shouldDivertMessagesToScheduled(messages: messages)
         |> deliverOnMainQueue).startStandalone(next: { [weak self] shouldDivert in

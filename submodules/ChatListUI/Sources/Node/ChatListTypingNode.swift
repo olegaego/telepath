@@ -38,8 +38,13 @@ final class ChatListInputActivitiesNode: ASDisplayNode {
                 
                 let lightColor = color.withAlphaComponent(0.85)
                 
-                if activities.count == 1 {
+                if activities.count == 1, let custom = AgentgramAgentStatus.customText(activities[0].1) {
+                    // Agentgram: an agent session's status, whichever list the row is in (Threaded Mode puts sessions in the main list);
+                    // grey in the list, blue only inside the topic
+                    state = .typingText(NSAttributedString(string: custom, font: textFont, textColor: color), lightColor)
+                } else if activities.count == 1 {
                     if activities[0].0.id == peerId {
+                        do {
                         let text: String
                         switch activities[0].1 {
                             case .uploadingVideo:
@@ -86,6 +91,8 @@ final class ChatListInputActivitiesNode: ASDisplayNode {
                                 state = .interactingWithEmoji(string, lightColor)
                             case .seeingEmojiInteraction:
                                 state = .none
+                        }
+                        // Agentgram
                         }
                     } else {
                         let text: String

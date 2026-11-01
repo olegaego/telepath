@@ -5,6 +5,9 @@ import SwiftSignalKit
 import AsyncDisplayKit
 import Display
 import TelegramCore
+// Agentgram
+import ThreadedBotSessions
+import Superfolders
 import TelegramPresentationData
 import TelegramUIPreferences
 import TelegramBaseController
@@ -99,7 +102,8 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
         return false
     }
     
-    private var validLayout: ContainerViewLayout?
+    // Agentgram
+    var validLayout: ContainerViewLayout?
     
     public let context: AccountContext
     private let controlsHistoryPreload: Bool
@@ -109,6 +113,14 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
     private let animationRenderer: MultiAnimationRenderer
     
     public let location: ChatListControllerLocation
+    // Agentgram
+    // The superfolder's tab: a list of the root chat list kept to the superfolder's chats.
+    public let isSuperfolder: Bool
+    var superfolderSettings: SuperfolderSettings = .default
+    var superfolderTabIcon: UIImage?
+    let superfolderSettingsDisposable = MetaDisposable()
+    let superfolderTabIconDisposable = MetaDisposable()
+    let superfolderTitleDisposable = MetaDisposable()
     public let previewing: Bool
     
     let openMessageFromSearchDisposable: MetaDisposable = MetaDisposable()
@@ -122,13 +134,14 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
         return self.chatListDisplayNode.navigationBarView.view as? ChatListNavigationBar.View
     }
 
-    private var chatListDisplayNode: ChatListControllerNode {
+    // Agentgram
+    var chatListDisplayNode: ChatListControllerNode {
         return super.displayNode as! ChatListControllerNode
     }
     
     fileprivate private(set) var primaryContext: ChatListLocationContext?
     private let primaryInfoReady = Promise<Bool>()
-    private let mainReady = Promise<Bool>()
+    let mainReady = Promise<Bool>()
     private let storiesReady = Promise<Bool>()
     
     private var pendingSecondaryContext: ChatListLocationContext?
@@ -172,7 +185,8 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
     
     private let isReorderingTabsValue = ValuePromise<Bool>(false)
     
-    private(set) var tabContainerData: ([ChatListFilterTabEntry], Bool, Int32?)?
+    // Agentgram
+    var tabContainerData: ([ChatListFilterTabEntry], Bool, Int32?)?
     var hasTabs: Bool {
         if let tabContainerData = self.tabContainerData {
             let isEmpty = tabContainerData.0.count <= 1 || tabContainerData.1
@@ -260,7 +274,9 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
         }
     }
     
-    public init(context: AccountContext, location: ChatListControllerLocation, controlsHistoryPreload: Bool, hideNetworkActivityStatus: Bool = false, previewing: Bool = false, enableDebugActions: Bool) {
+    // Agentgram
+    public init(context: AccountContext, location: ChatListControllerLocation, controlsHistoryPreload: Bool, hideNetworkActivityStatus: Bool = false, previewing: Bool = false, isSuperfolder: Bool = false, enableDebugActions: Bool) {
+        self.isSuperfolder = isSuperfolder
         self.context = context
         self.controlsHistoryPreload = controlsHistoryPreload
         self.hideNetworkActivityStatus = hideNetworkActivityStatus
@@ -308,7 +324,8 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
         switch self.location {
         case let .chatList(groupId):
             if groupId == .root {
-                title = self.presentationData.strings.DialogList_Title
+                // Agentgram
+                title = self.isSuperfolder ? self.superfolderTitle : self.presentationData.strings.DialogList_Title
             } else {
                 title = self.presentationData.strings.ChatList_ArchivedChatsTitle
             }
@@ -343,18 +360,24 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
             switch self.location {
             case let .chatList(groupId):
                 if groupId == .root {
-                    self.tabBarItem.title = self.presentationData.strings.DialogList_Title
+                    self.tabBarItem.title = self.isSuperfolder ? self.superfolderTitle : self.presentationData.strings.DialogList_Title
                     
-                    let icon: UIImage?
+                    var icon: UIImage?
                     if useSpecialTabBarIcons() {
                         icon = UIImage(bundleImageName: "Chat List/Tabs/Holiday/IconChats")
                     } else {
                         icon = UIImage(bundleImageName: "Chat List/Tabs/IconChats")
                     }
+                    if self.isSuperfolder {
+                        icon = self.superfolderTabIcon ?? UIImage(bundleImageName: "Chat List/Tabs/IconChats")
+                    }
                     
                     self.tabBarItem.image = icon
                     self.tabBarItem.selectedImage = icon
-                    if !self.presentationData.reduceMotion {
+                    if self.isSuperfolder {
+                        // Agentgram: the tab's title and icon follow the superfolder at once, before its list is opened
+                        self.followSuperfolderTabItem()
+                    } else if !self.presentationData.reduceMotion {
                         self.tabBarItem.animationName = "TabChats"
                         self.tabBarItem.animationOffset = CGPoint(x: 0.0, y: UIScreenPixel)
                     }
@@ -452,7 +475,34 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
             }
         }
         
-        self.badgeDisposable = (combineLatest(renderedTotalUnreadCount(accountManager: context.sharedContext.accountManager, engine: context.engine), self.presentationDataValue.get()) |> deliverOnMainQueue).startStrict(next: { [weak self] count, presentationData in
+        // Agentgram
+        // The superfolder's tab counts its own chats; «Chats» does not count the ones that left it for the superfolder.
+        var badgeCount: Signal<(Int32, RenderedTotalUnreadCountType), NoError> = renderedTotalUnreadCount(accountManager: context.sharedContext.accountManager, engine: context.engine)
+        if isSuperfolder {
+            badgeCount = chatListFilterItems(context: context, filters: Superfolders.settings(engine: context.engine) |> map { [Superfolders.filter(settings: $0)] })
+            |> map { _, items -> (Int32, RenderedTotalUnreadCountType) in
+                return (Int32(items.first?.1 ?? 0), .raw)
+            }
+        } else if case .chatList(.root) = location {
+            let leftChatList: Signal<[ChatListFilter], NoError> = Superfolders.settings(engine: context.engine)
+            |> map { settings -> [ChatListFilter] in
+                guard settings.isCreated, !settings.keepsChatsInChatList, case let .filter(id, title, emoticon, filterData) = Superfolders.filter(settings: settings) else {
+                    return []
+                }
+                var data = filterData
+                data.excludePeers.append(contentsOf: settings.alsoInChatListPeerIds.map { EnginePeer.Id($0) })
+                return [.filter(id: id, title: title, emoticon: emoticon, data: data)]
+            }
+            let leftChatListCount = chatListFilterItems(context: context, filters: leftChatList)
+            |> map { _, items -> Int32 in
+                return Int32(items.first?.1 ?? 0)
+            }
+            badgeCount = combineLatest(badgeCount, leftChatListCount)
+            |> map { total, left -> (Int32, RenderedTotalUnreadCountType) in
+                return (max(0, total.0 - left), total.1)
+            }
+        }
+        self.badgeDisposable = (combineLatest(badgeCount, self.presentationDataValue.get()) |> deliverOnMainQueue).startStrict(next: { [weak self] count, presentationData in
             if let strongSelf = self {
                 if count.0 == 0 {
                     strongSelf.tabBarItem.badgeValue = ""
@@ -765,7 +815,12 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
                     tabsView.updateTabSwitchFraction(fraction: fraction, isDragging: strongSelf.chatListDisplayNode.mainContainerNode.isSwitchingCurrentItemFilterByDragging, transition: ComponentTransition(transition))
                 }
             }
-            self.reloadFilters()
+            // Agentgram
+            if self.isSuperfolder {
+                self.reloadSuperfolder()
+            } else {
+                self.reloadFilters()
+            }
         }
         
         self.storiesPostingAvailabilityDisposable = (self.context.engine.data.subscribe(TelegramEngine.EngineData.Item.Configuration.ApplicationSpecificPreference(key: PreferencesKeys.appConfiguration))
@@ -803,6 +858,10 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
     }
     
     deinit {
+        // Agentgram
+        self.superfolderSettingsDisposable.dispose()
+        self.superfolderTabIconDisposable.dispose()
+        self.superfolderTitleDisposable.dispose()
         self.openMessageFromSearchDisposable.dispose()
         self.badgeDisposable?.dispose()
         self.badgeIconDisposable?.dispose()
@@ -930,12 +989,14 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
     
     private func updateThemeAndStrings() {
         if case .chatList(.root) = self.location {
-            self.tabBarItem.title = self.presentationData.strings.DialogList_Title
-            let backBarButtonItem = UIBarButtonItem(title: self.presentationData.strings.DialogList_Title, style: .plain, target: nil, action: nil)
+            // Agentgram
+            let title = self.isSuperfolder ? self.superfolderTitle : self.presentationData.strings.DialogList_Title
+            self.tabBarItem.title = title
+            let backBarButtonItem = UIBarButtonItem(title: title, style: .plain, target: nil, action: nil)
             backBarButtonItem.accessibilityLabel = self.presentationData.strings.Common_Back
             self.navigationItem.backBarButtonItem = backBarButtonItem
             
-            if !self.presentationData.reduceMotion {
+            if !self.presentationData.reduceMotion && !self.isSuperfolder {
                 self.tabBarItem.animationName = "TabChats"
             } else {
                 self.tabBarItem.animationName = nil
@@ -957,6 +1018,13 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
     }
     
     func tabContextGesture(id: Int32?, sourceNode: ContextExtractedContentContainingNode?, sourceView: ContextExtractedContentContainingView?, gesture: ContextGesture?, keepInPlace: Bool, isDisabled: Bool) {
+        // Agentgram
+        // The superfolder's folder tabs are kept in its settings: edit or delete them here.
+        if self.isSuperfolder {
+            gesture?.cancel()
+            self.superfolderFolderMenu(id: id)
+            return
+        }
         let context = self.context
         let filterPeersAreMuted: Signal<(areMuted: Bool, peerIds: [EnginePeer.Id])?, NoError> = self.context.engine.peers.currentChatListFilters()
         |> take(1)
@@ -1435,6 +1503,21 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
                         self.chatListDisplayNode.mainContainerNode.currentItemNode.clearHighlightAnimated(true)
                         return
                     }
+                    // Agentgram
+                    // a bot shown as one row opens the list of its sessions, like a community
+                    if threadId == nil, case .chatList = self.location, ThreadedBotSessions.isThreadedBot(peer), case let botSettings = ThreadedBotSessions.currentSettings(accountPeerId: self.context.account.peerId).bot(peer.id), botSettings.showAsOneChat, !botSettings.topicsInside {
+                        let controller = self.context.sharedContext.makeChatListController(context: self.context, location: .forum(peerId: peer.id), controlsHistoryPreload: false, hideNetworkActivityStatus: false, previewing: false, enableDebugActions: false)
+                        self.push(controller)
+                        self.chatListDisplayNode.mainContainerNode.currentItemNode.clearHighlightAnimated(true)
+                        return
+                    }
+                    
+                    // a session of a Threaded Mode bot opens as its topic
+                    if case .user = peer, let threadId, ThreadedBotSessions.isThreadedBot(peer) {
+                        let _ = self.context.sharedContext.navigateToForumThread(context: self.context, peerId: peer.id, threadId: threadId, messageId: nil, navigationController: navigationController, activateInput: activateInput ? .text : nil, scrollToEndIfExists: false, keepStack: .always, animated: true).startStandalone()
+                        self.chatListDisplayNode.clearHighlightAnimated(true)
+                        return
+                    }
                     
                     var scrollToEndIfExists = false
                     if let layout = self.validLayout, case .regular = layout.metrics.widthClass {
@@ -1560,6 +1643,8 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
             guard let self else {
                 return
             }
+            // Agentgram
+            // the arrow on a Threaded Mode bot opens the same screen with its sessions
             self.push(self.context.sharedContext.makeCommunityViewScreen(context: self.context, communityId: communityId, mode: .sheet))
         }
 
@@ -1657,6 +1742,27 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
                 payload: nil,
                 verifyAgeCompletion: nil
             )
+        }
+        
+        // Agentgram
+        // «New Chat» on a Threaded Mode bot's row: the native new-topic window, then the new topic opens
+        self.chatListDisplayNode.mainContainerNode.startBotSession = { [weak self] peerId in
+            guard let self, let navigationController = self.navigationController as? NavigationController else {
+                return
+            }
+            let context = self.context
+            let controller = ForumCreateTopicScreen(context: context, peerId: peerId, mode: .create)
+            controller.navigationPresentation = .modal
+            controller.completion = { [weak controller] title, fileId, iconColor, _ in
+                controller?.isInProgress = true
+                let _ = (context.engine.peers.createForumChannelTopic(id: peerId, title: title, iconColor: iconColor, iconFileId: fileId)
+                |> deliverOnMainQueue).startStandalone(next: { topicId in
+                    let _ = context.sharedContext.navigateToForumThread(context: context, peerId: peerId, threadId: topicId, messageId: nil, navigationController: navigationController, activateInput: .text, scrollToEndIfExists: false, keepStack: .never, animated: true).startStandalone()
+                }, error: { _ in
+                    controller?.isInProgress = false
+                })
+            }
+            self.push(controller)
         }
         
         self.chatListDisplayNode.mainContainerNode.openAccountFreezeInfo = { [weak self] in
@@ -1861,7 +1967,15 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
             guard let strongSelf = self, let navigationController = strongSelf.navigationController as? NavigationController else {
                 return
             }
-            if let filter = strongSelf.chatListDisplayNode.effectiveContainerNode.currentItemNode.chatListFilter {
+            // Agentgram
+            if let filter = strongSelf.chatListDisplayNode.effectiveContainerNode.currentItemNode.chatListFilter, Superfolders.isOwnFilterId(filter.id) {
+                // The empty superfolder adds chats; an empty folder of it opens its own screen.
+                if filter.id == Superfolders.filterId {
+                    strongSelf.push(superfolderAddChatsController(context: strongSelf.context))
+                } else {
+                    strongSelf.push(chatListFilterPresetController(context: strongSelf.context, currentPreset: filter, superfolderFolderId: filter.id, updated: { _ in }))
+                }
+            } else if let filter = strongSelf.chatListDisplayNode.effectiveContainerNode.currentItemNode.chatListFilter {
                 strongSelf.push(chatListFilterPresetController(context: strongSelf.context, currentPreset: filter, updated: { _ in }))
             } else {
                 if case let .forum(peerId) = strongSelf.chatListDisplayNode.effectiveContainerNode.location {
@@ -1927,6 +2041,18 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
                 
                 switch item.index {
                 case .chatList:
+                    // Agentgram
+                    // a session of a Threaded Mode bot previews its own topic, as topics do in a forum
+                    if let threadInfo, ThreadedBotSessions.isThreadedBot(peer.peer) {
+                        let chatController = strongSelf.context.sharedContext.makeChatController(context: strongSelf.context, chatLocation: .replyThread(message: ChatReplyThreadMessage(
+                            peerId: peer.peerId, threadId: threadInfo.id, channelMessageId: nil, isChannelPost: false, isForumPost: true, isMonoforumPost: false, maxMessage: nil, maxReadIncomingMessageId: nil, maxReadOutgoingMessageId: nil, unreadCount: 0, initialFilledHoles: IndexSet(), initialAnchor: .automatic, isNotAvailable: false
+                        )), subject: nil, botStart: nil, mode: .standard(.previewing), params: nil)
+                        chatController.canReadHistory.set(false)
+                        let source: ContextContentSource = .controller(ContextControllerContentSourceImpl(controller: chatController, sourceNode: node, navigationController: strongSelf.navigationController as? NavigationController))
+                        let contextController = makeContextController(context: strongSelf.context, presentationData: strongSelf.presentationData, source: source, items: chatForumTopicMenuItems(context: strongSelf.context, peerId: peer.peerId, threadId: threadInfo.id, isPinned: false, isClosed: threadInfo.isClosed, chatListController: strongSelf, joined: joined, canSelect: false) |> map { ContextController.Items(content: .list($0)) }, gesture: gesture)
+                        strongSelf.presentInGlobalOverlay(contextController)
+                        return
+                    }
                     if case let .channel(channel) = peer.peer, (channel.isForum || (channel.isMonoForum && threadId != nil)) {
                         if let threadId = threadId {
                             let source: ContextContentSource
@@ -2185,7 +2311,26 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
             if self.previewing {
                 self.storiesReady.set(.single(true))
             } else {
-                self.storySubscriptionsDisposable = (self.context.engine.messages.storySubscriptions(isHidden: self.location == .chatList(groupId: .archive))
+                // Agentgram
+                // The stories of the superfolder's people are shown in it, and in «Chats» only if its chats stay there too.
+                let isSuperfolder = self.isSuperfolder
+                let isRoot = self.location == .chatList(groupId: .root)
+                let accountPeerId = self.context.account.peerId
+                self.storySubscriptionsDisposable = (combineLatest(self.context.engine.messages.storySubscriptions(isHidden: self.location == .chatList(groupId: .archive)), Superfolders.settings(engine: self.context.engine), superfolderResolvedMembers(accountPeerId: accountPeerId))
+                |> map { subscriptions, settings, resolvedMembers -> EngineStorySubscriptions in
+                    guard isRoot, settings.isCreated else {
+                        return subscriptions
+                    }
+                    let members = Set(settings.includePeerIds.map { EnginePeer.Id($0) }).union(Set(settings.pinnedPeerIds.map { EnginePeer.Id($0) })).union(resolvedMembers).subtracting(settings.excludePeerIds.map { EnginePeer.Id($0) })
+                    let alsoInChatList = Set(settings.alsoInChatListPeerIds.map { EnginePeer.Id($0) })
+                    return EngineStorySubscriptions(accountItem: subscriptions.accountItem, items: subscriptions.items.filter { item in
+                        let isMember = members.contains(item.peer.id)
+                        if isSuperfolder {
+                            return isMember
+                        }
+                        return !isMember || settings.keepsChatsInChatList || alsoInChatList.contains(item.peer.id)
+                    }, hasMoreToken: subscriptions.hasMoreToken)
+                }
                 |> deliverOnMainQueue).startStrict(next: { [weak self] rawStorySubscriptions in
                     guard let self else {
                         return
@@ -4030,7 +4175,8 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
         self.presentInGlobalOverlay(contextController)
     }
     
-    private var initializedFilters = false
+    // Agentgram
+    var initializedFilters = false
     private func reloadFilters(firstUpdate: (() -> Void)? = nil) {
         let filterItems = chatListFilterItems(context: self.context)
         var notifiedFirstUpdate = false
@@ -4158,6 +4304,15 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
     }
     
     func selectTab(id: ChatListFilterTabEntryId, switchToChatsIfNeeded: Bool = true) {
+        // Agentgram
+        if self.isSuperfolder {
+            if self.chatListDisplayNode.mainContainerNode.currentItemFilter == id {
+                self.scrollToTop?()
+            } else {
+                self.chatListDisplayNode.mainContainerNode.switchToFilter(id: id)
+            }
+            return
+        }
         if self.parent == nil, switchToChatsIfNeeded {
             if let navigationController = self.context.sharedContext.mainWindow?.viewController as? NavigationController {
                 for controller in navigationController.viewControllers {
@@ -6339,6 +6494,10 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
             })
             
             var items: [ContextMenuItem] = []
+            // Agentgram: the superfolder's tab has its own menu
+            if strongSelf.superfolderTabMenu(sourceView: sourceView, gesture: gesture) {
+                return
+            }
             items.append(.action(ContextMenuActionItem(text: hasFolders ? strongSelf.presentationData.strings.ChatList_EditFolders : strongSelf.presentationData.strings.ChatList_AddFolder, icon: { theme in
                 return generateTintedImage(image: UIImage(bundleImageName: hasFolders ? "Chat/Context Menu/EditFolder" : "Chat/Context Menu/Add"), color: theme.contextMenu.primaryColor)
             }, action: { c, f in
@@ -6707,7 +6866,8 @@ public class ChatListControllerImpl: TelegramBaseController, ChatListController 
     }
 }
 
-private final class ChatListTabBarContextReferenceContentSource: ContextReferenceContentSource {
+// Agentgram
+final class ChatListTabBarContextReferenceContentSource: ContextReferenceContentSource {
     let keepInPlace: Bool = true
     let actionsHorizontalAlignment: ContextActionsHorizontalAlignment = .center
     
@@ -7214,7 +7374,12 @@ private final class ChatListLocationContext {
         switch location {
         case let .chatList(groupId):
             if groupId == .root {
-                defaultTitle = presentationData.strings.DialogList_Title
+                // Agentgram
+                if let parentController = self.parentController, parentController.isSuperfolder {
+                    defaultTitle = parentController.superfolderTitle
+                } else {
+                    defaultTitle = presentationData.strings.DialogList_Title
+                }
             } else {
                 defaultTitle = presentationData.strings.ChatList_ArchivedChatsTitle
             }

@@ -99,6 +99,35 @@ public extension TelegramEngine {
         	return _internal_clearCloudDraftsInteractively(postbox: self.account.postbox, network: self.account.network, accountPeerId: self.account.peerId)
         }
 
+        // Agentgram: the live drafts these bots stream into their topics now, as text by topic: the statuses of the
+        // agents' sessions away from home
+        public func agentgramLiveDrafts(peerIds: Set<EnginePeer.Id>) -> Signal<[EnginePeer.Id: [Int64: String]], NoError> {
+            let postbox = self.account.postbox
+            return postbox.combinedView(keys: [.allTypingDrafts])
+            |> map { views -> [PeerAndThreadId] in
+                guard let view = views.views[.allTypingDrafts] as? AllTypingDraftsView else {
+                    return []
+                }
+                return view.keys.filter { peerIds.contains($0.peerId) }.sorted(by: { ($0.peerId, $0.threadId ?? 0) < ($1.peerId, $1.threadId ?? 0) })
+            }
+            |> distinctUntilChanged
+            |> mapToSignal { keys -> Signal<[EnginePeer.Id: [Int64: String]], NoError> in
+                if keys.isEmpty {
+                    return .single([:])
+                }
+                return postbox.combinedView(keys: keys.map { .typingDrafts($0) })
+                |> map { views -> [EnginePeer.Id: [Int64: String]] in
+                    var result: [EnginePeer.Id: [Int64: String]] = [:]
+                    for key in keys {
+                        if let view = views.views[.typingDrafts(key)] as? TypingDraftsView, let draft = view.typingDraft {
+                            result[key.peerId, default: [:]][key.threadId ?? 0] = draft.text
+                        }
+                    }
+                    return result
+                }
+            }
+        }
+
         public func stopIncomingTypingDraft(peerId: EnginePeer.Id, threadId: Int64?) -> Signal<Never, NoError> {
             return _internal_stopIncomingTypingDraft(postbox: self.account.postbox, network: self.account.network, peerId: peerId, threadId: threadId)
         }

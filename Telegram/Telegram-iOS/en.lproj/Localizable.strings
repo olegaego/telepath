@@ -16463,6 +16463,16 @@ Error: %8$@";
 "Community.View.PendingRequestHeader" = "PENDING REQUEST";
 "Community.View.ShowAsOneChat" = "Show as One Chat";
 "Community.View.ShowAsOneChatInfo" = "Group all community chats into one item in the chat list.";
+/* Agentgram */
+
+"ThreadedBots.TopicsInside" = "Topics Inside the Bot";
+"ThreadedBots.TopicsInsideInfo" = "One row for the bot, its topics open inside the chat.";
+"ThreadedBots.ListInfo" = "Topics are listed under the bot. Show as One Chat keeps a single row, like a community.";
+"ThreadedBots.InChatList" = "IN CHAT LIST";
+"ThreadedBots.OtherTopics" = "OTHER TOPICS";
+"ThreadedBots.Topics" = "TOPICS";
+"ThreadedBots.RemoveFromChatList" = "Remove from Chat List";
+"ThreadedBots.ShowInChatList" = "Show in Chat List";
 "Community.View.AddChatButton" = "Add a Chat to Community";
 "Community.View.PendingRequestApprovedToast" = "You've added the group to the community.";
 "Community.View.PendingRequestDeclinedToast" = "You declined adding the group to the community.";
@@ -17243,3 +17253,26 @@ Error: %8$@";
 "Gift.Delete.Title" = "Delete Gift";
 "Gift.Delete.Text" = "Do you want to delete this gift?\n\nIt will disappear from your profile and can't be restored.";
 "Gift.Delete.Success" = "Gift Deleted";
+/* Agentgram */
+
+"Superfolder.DefaultTitle" = "Superfolder";
+"Superfolder.Info" = "A tab of its own with its own chats, folders and stories. For example, everything for work here and your personal chats in Chats.";
+"Superfolder.NewTitle" = "New Superfolder";
+"Superfolder.NameHeader" = "SUPERFOLDER NAME";
+"Superfolder.NamePlaceholder" = "Superfolder Name";
+"Superfolder.IconHeader" = "SUPERFOLDER ICON";
+"Superfolder.ChooseIcon" = "Choose Icon";
+"Superfolder.ChangeIcon" = "Change Icon";
+"Superfolder.RemoveFromChats" = "Remove from Chats";
+"Superfolder.RemoveFromChatsInfo" = "If off, the superfolder's chats stay in Chats too. A single chat can be shown in both places with a long press on it.";
+"Superfolder.IncludeInfoMove" = "These chats will be only in the superfolder, they leave Chats.";
+"Superfolder.IncludeInfoKeep" = "These chats will be both in the superfolder and in Chats.";
+"Superfolder.Delete" = "Delete Superfolder";
+"Superfolder.DeleteConfirmation" = "The chats go back to Chats. The superfolder's folders, pinned chats and icon are deleted.";
+"Superfolder.MoveTo" = "Move to %@";
+"Superfolder.RemoveFrom" = "Remove from %@";
+"Superfolder.AlsoInChats" = "Also Show in Chats";
+"Superfolder.NotInChats" = "Don't Show in Chats";
+"Superfolder.EmptyTitle" = "Superfolder Is Empty";
+"Superfolder.EmptyText" = "There are no chats in this superfolder yet.";
+"Superfolder.AddChats" = "Add Chats";

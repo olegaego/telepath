@@ -3,6 +3,8 @@ import UIKit
 import AsyncDisplayKit
 import Display
 import TelegramCore
+// Agentgram
+import Superfolders
 import SwiftSignalKit
 import TelegramPresentationData
 import MergeLists
@@ -375,6 +377,10 @@ public final class ChatListContainerNode: ASDisplayNode, ASGestureRecognizerDele
         itemNode.listNode.openWebApp = { [weak self] amount in
             self?.openWebApp?(amount)
         }
+        // Agentgram
+        itemNode.listNode.startBotSession = { [weak self] peerId in
+            self?.startBotSession?(peerId)
+        }
         itemNode.listNode.openPhotoSetup = { [weak self] in
             self?.openPhotoSetup?()
         }
@@ -451,6 +457,8 @@ public final class ChatListContainerNode: ASDisplayNode, ASGestureRecognizerDele
     var openStories: ((ChatListNode.OpenStoriesSubject, ASDisplayNode?) -> Void)?
     var openStarsTopup: ((Int64?) -> Void)?
     var openWebApp: ((TelegramUser) -> Void)?
+    // Agentgram
+    var startBotSession: ((EnginePeer.Id) -> Void)?
     var openPhotoSetup: (() -> Void)?
     var openAccountFreezeInfo: (() -> Void)?
     var addedVisibleChatsWithPeerIds: (([EnginePeer.Id]) -> Void)?
@@ -528,7 +536,19 @@ public final class ChatListContainerNode: ASDisplayNode, ASGestureRecognizerDele
         
         self.backgroundColor = presentationData.theme.chatList.backgroundColor
         
-        let itemNode = ChatListContainerItemNode(context: self.context, controller: self.controller, location: self.location, filter: nil, chatListMode: chatListMode, previewing: self.previewing, isInlineMode: self.isInlineMode, controlsHistoryPreload: self.controlsHistoryPreload, presentationData: presentationData, animationCache: self.animationCache, animationRenderer: self.animationRenderer, becameEmpty: { [weak self] filter in
+        // Agentgram
+        // The superfolder's tab starts on its own chats, not on all chats.
+        var initialFilter: ChatListFilter?
+        var initialId: ChatListFilterTabEntryId = .all
+        if !isInlineMode, let controller, controller.isSuperfolder {
+            let filter = Superfolders.filter(settings: Superfolders.currentSettings(accountPeerId: context.account.peerId))
+            initialFilter = filter
+            initialId = .filter(Superfolders.filterId)
+            self.availableFilters = [.filter(filter)]
+            self.selectedId = initialId
+        }
+        
+        let itemNode = ChatListContainerItemNode(context: self.context, controller: self.controller, location: self.location, filter: initialFilter, chatListMode: chatListMode, previewing: self.previewing, isInlineMode: self.isInlineMode, controlsHistoryPreload: self.controlsHistoryPreload, presentationData: presentationData, animationCache: self.animationCache, animationRenderer: self.animationRenderer, becameEmpty: { [weak self] filter in
             self?.filterBecameEmpty(filter)
         }, emptyAction: { [weak self] filter in
             self?.filterEmptyAction(filter)
@@ -537,12 +557,13 @@ public final class ChatListContainerNode: ASDisplayNode, ASGestureRecognizerDele
         }, openArchiveSettings: { [weak self] in
             self?.openArchiveSettings()
         }, autoSetReady: true, isMainTab: nil)
-        self.itemNodes[.all] = itemNode
+        // Agentgram
+        self.itemNodes[initialId] = itemNode
         self.addSubnode(itemNode)
         
         self._ready.set(itemNode.listNode.ready)
         
-        self.applyItemNodeAsCurrent(id: .all, itemNode: itemNode)
+        self.applyItemNodeAsCurrent(id: initialId, itemNode: itemNode)
         
         let panRecognizer = InteractiveTransitionGestureRecognizer(target: self, action: #selector(self.panGesture(_:)), allowedDirections: { [weak self] _ in
             guard let self, self.availableFilters.count > 1 || (self.controller?.isStoryPostingAvailable == true && !(self.context.sharedContext.callManager?.hasActiveCall ?? false)) else {

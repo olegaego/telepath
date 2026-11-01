@@ -179,6 +179,19 @@ API_AVAILABLE(ios(10))
     return _appCenterId;
 }
 
+// Agentgram
+- (NSString * _Nonnull)pushRelayUrl {
+    return @(APP_CONFIG_PUSH_RELAY_URL);
+}
+
+- (NSString * _Nonnull)pushRelayKey {
+    return @(APP_CONFIG_PUSH_RELAY_KEY);
+}
+
+- (NSString * _Nonnull)pushRelayAuth {
+    return @(APP_CONFIG_PUSH_RELAY_AUTH);
+}
+
 - (bool)isInternalBuild {
     return APP_CONFIG_IS_INTERNAL_BUILD;
 }

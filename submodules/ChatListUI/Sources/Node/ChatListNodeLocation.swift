@@ -1,6 +1,8 @@
 import Foundation
 import Postbox
 import TelegramCore
+// Agentgram
+import Superfolders
 import SwiftSignalKit
 import Display
 import TelegramUIPreferences
@@ -195,7 +197,59 @@ public func chatListFilterPredicate(filter: ChatListFilterData, accountPeerId: E
     })
 }
 
-public func chatListViewForLocation(chatListLocation: ChatListControllerLocation, location: ChatListNodeLocation, account: Account, shouldLoadCanMessagePeer: Bool) -> Signal<ChatListNodeViewUpdate, NoError> {
+// Agentgram: chatListViewForLocation (ThreadedBotChatList.swift) adds the bot sessions to this list.
+// The root chat list leaves out the superfolder's chats, unless they are kept there too; a folder of the
+// superfolder shows only the superfolder's chats.
+public func chatListViewForLocationPlain(chatListLocation: ChatListControllerLocation, location: ChatListNodeLocation, account: Account, shouldLoadCanMessagePeer: Bool) -> Signal<ChatListNodeViewUpdate, NoError> {
+    let view = chatListViewForLocationUnfiltered(chatListLocation: chatListLocation, location: location, account: account, shouldLoadCanMessagePeer: shouldLoadCanMessagePeer)
+    // Agentgram: the picker of where to forward (it loads «can message») lists every chat, the superfolder's too
+    guard case .chatList(.root) = chatListLocation, location.filter?.id != Superfolders.filterId, !shouldLoadCanMessagePeer else {
+        return view
+    }
+    let isSuperfolderFolder = Superfolders.isFolderId(location.filter?.id)
+    let accountPeerId = account.peerId
+    return combineLatest(view, Superfolders.settings(engine: TelegramEngine(account: account)))
+    |> map { update, settings -> ChatListNodeViewUpdate in
+        let members = superfolderMembers(items: update.list.items, settings: settings, accountPeerId: accountPeerId)
+        if location.filter == nil {
+            setSuperfolderResolvedMembers(accountPeerId: accountPeerId, members)
+        }
+        var items: [EngineChatList.Item]
+        if isSuperfolderFolder {
+            items = update.list.items.filter { members.contains($0.renderedPeer.peerId) }
+        } else if settings.isCreated && !settings.keepsChatsInChatList && !members.isEmpty {
+            let alsoInChatList = Set(settings.alsoInChatListPeerIds.map { EnginePeer.Id($0) })
+            items = update.list.items.filter { !members.contains($0.renderedPeer.peerId) || alsoInChatList.contains($0.renderedPeer.peerId) }
+        } else {
+            return update
+        }
+        let list = EngineChatList(items: items, groupItems: update.list.groupItems, additionalItems: update.list.additionalItems, hasEarlier: update.list.hasEarlier, hasLater: update.list.hasLater, isLoading: update.list.isLoading)
+        return ChatListNodeViewUpdate(list: list, type: update.type, scrollPosition: update.scrollPosition)
+    }
+}
+
+// Which of these chats are in the superfolder, by themselves, pinned there or by their type.
+func superfolderMembers(items: [EngineChatList.Item], settings: SuperfolderSettings, accountPeerId: EnginePeer.Id) -> Set<EnginePeer.Id> {
+    guard settings.isCreated, case let .filter(_, _, _, data) = Superfolders.filter(settings: settings) else {
+        return Set()
+    }
+    let predicate = chatListFilterPredicate(filter: data, accountPeerId: accountPeerId)
+    var result = Set<EnginePeer.Id>()
+    for item in items {
+        let peerId = item.renderedPeer.peerId
+        if predicate.excludePeerIds.contains(peerId) {
+            continue
+        }
+        if predicate.includePeerIds.contains(peerId) || predicate.pinnedPeerIds.contains(peerId) {
+            result.insert(peerId)
+        } else if !data.categories.isEmpty, let peer = item.renderedPeer.chatMainPeer?._asPeer(), predicate.include(peer, item.isMuted, item.readCounters?.isUnread ?? false, item.isContact, nil) {
+            result.insert(peerId)
+        }
+    }
+    return result
+}
+
+private func chatListViewForLocationUnfiltered(chatListLocation: ChatListControllerLocation, location: ChatListNodeLocation, account: Account, shouldLoadCanMessagePeer: Bool) -> Signal<ChatListNodeViewUpdate, NoError> {
     let accountPeerId = account.peerId
     
     switch chatListLocation {

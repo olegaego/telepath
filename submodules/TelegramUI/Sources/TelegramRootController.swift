@@ -1,4 +1,6 @@
 import Foundation
+import AgentgramCore
+import AgentgramSettingsUI
 import UIKit
 import Display
 import AsyncDisplayKit
@@ -9,6 +11,8 @@ import AccountContext
 import ContactListUI
 import CallListUI
 import ChatListUI
+// Agentgram
+import Superfolders
 import SettingsUI
 import AppBundle
 import DatePickerNode
@@ -79,6 +83,13 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
     public var contactsController: ContactsController?
     public var callListController: CallListController?
     public var chatListController: ChatListController?
+    // Agentgram
+    // The superfolder's tab, shown while the account has a superfolder.
+    public var superfolderController: ChatListControllerImpl?
+    private var isSuperfolderCreated = false
+    private var showCallsTab = false
+    private var showNewsTab = false
+    private let superfolderCreatedDisposable = MetaDisposable()
     public var accountSettingsController: PeerInfoScreen?
     public var newsController: NewsScreen?
     
@@ -89,6 +100,8 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
     private var detailsPlaceholderNode: DetailsChatPlaceholderNode?
     
     private var applicationInFocusDisposable: Disposable?
+    // Agentgram: the tabs follow «Agentgram → Tabs»
+    private var agentgramTabsObserver: NSObjectProtocol?
     private var storyUploadEventsDisposable: Disposable?
     
     override public var minimizedContainer: MinimizedContainer? {
@@ -144,6 +157,8 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
     }
     
     deinit {
+        // Agentgram
+        self.superfolderCreatedDisposable.dispose()
         self.permissionsDisposable?.dispose()
         self.presentationDataDisposable?.dispose()
         self.applicationInFocusDisposable?.dispose()
@@ -203,6 +218,11 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         if let sharedContext = self.context.sharedContext as? SharedAccountContextImpl {
             chatListController.tabBarItem.badgeValue = sharedContext.switchingData.chatListBadge
         }
+        // Agentgram
+        let superfolderController = ChatListControllerImpl(context: self.context, location: .chatList(groupId: .root), controlsHistoryPreload: false, hideNetworkActivityStatus: false, previewing: false, isSuperfolder: true, enableDebugActions: false)
+        self.isSuperfolderCreated = Superfolders.currentSettings(accountPeerId: self.context.account.peerId).isCreated
+        self.showCallsTab = showCallsTab
+        self.showNewsTab = showNewsTab
         let callListController = CallListController(context: self.context, mode: .tab)
         // Created even when hidden, like the calls tab: `updateRootControllers` shows and hides it.
         let newsController = NewsScreen(context: self.context)
@@ -213,15 +233,31 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         contactsController.switchToChatsController = {  [weak self] in
             self?.openChatsController(activateSearch: false)
         }
-        controllers.append(contactsController)
-        
-        if showCallsTab {
+        // Agentgram: Contacts and Calls only when turned on in «Agentgram → Tabs»
+        if AgentgramTabs.showsContacts {
+            controllers.append(contactsController)
+        }
+        if AgentgramTabs.showsCalls {
             controllers.append(callListController)
         }
+        // Agentgram: the superfolder's tab next to Chats, after or before it, unless turned off in «Agentgram → Tabs»
+        let showsSuperfolder = self.isSuperfolderCreated && AgentgramTabs.showsSuperfolder
+        if showsSuperfolder && AgentgramTabs.superfolderFirst {
+            controllers.append(superfolderController)
+        }
         controllers.append(chatListController)
+        if showsSuperfolder && !AgentgramTabs.superfolderFirst {
+            controllers.append(superfolderController)
+        }
         if showNewsTab {
             controllers.append(newsController)
         }
+        self.agentgramTabsObserver = NotificationCenter.default.addObserver(forName: AgentgramTabs.didChange, object: nil, queue: .main, using: { [weak self] _ in
+            guard let self else {
+                return
+            }
+            self.updateRootControllers(showCallsTab: self.showCallsTab, showNewsTab: self.showNewsTab)
+        })
         
         var restoreSettignsController: (ViewController & SettingsController)?
         if let sharedContext = self.context.sharedContext as? SharedAccountContextImpl {
@@ -231,6 +267,11 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         if let sharedContext = self.context.sharedContext as? SharedAccountContextImpl {
             sharedContext.switchingData = (nil, nil, nil)
         }
+        
+        // Agentgram: the agents' sessions status, from the bots' messages and the computers nearby
+        agentgramStartAgentStatus(context: self.context)
+        // Agentgram: chat bots answer from this phone while the app is open
+        agentgramStartChatBots(context: self.context)
         
         let accountSettingsController = PeerInfoScreenImpl(context: self.context, updatedPresentationData: nil, peerId: self.context.account.peerId, avatarInitiallyExpanded: false, isOpenedFromChat: false, reactionSourceMessageId: nil, callMessages: [], isSettings: true)
         accountSettingsController.tabBarItemDebugTapAction = { [weak self] in
@@ -249,21 +290,47 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         self.callListController = callListController
         self.newsController = newsController
         self.chatListController = chatListController
+        self.superfolderController = superfolderController
         self.accountSettingsController = accountSettingsController
         self.rootTabController = tabBarController
         self.pushViewController(tabBarController, animated: false)
+        
+        // The superfolder's tab comes and goes with the superfolder.
+        self.superfolderCreatedDisposable.set((Superfolders.settings(engine: self.context.engine)
+        |> map { $0.isCreated }
+        |> distinctUntilChanged
+        |> deliverOnMainQueue).startStrict(next: { [weak self] isCreated in
+            guard let self, self.isSuperfolderCreated != isCreated else {
+                return
+            }
+            self.isSuperfolderCreated = isCreated
+            self.updateRootControllers(showCallsTab: self.showCallsTab, showNewsTab: self.showNewsTab)
+        }))
     }
         
     public func updateRootControllers(showCallsTab: Bool, showNewsTab: Bool) {
+        self.showCallsTab = showCallsTab
+        self.showNewsTab = showNewsTab
         guard let rootTabController = self.rootTabController as? TabBarControllerImpl else {
             return
         }
         var controllers: [ViewController] = []
-        controllers.append(self.contactsController!)
-        if showCallsTab {
+        // Agentgram: Contacts and Calls only when turned on in «Agentgram → Tabs»
+        if AgentgramTabs.showsContacts {
+            controllers.append(self.contactsController!)
+        }
+        if AgentgramTabs.showsCalls {
             controllers.append(self.callListController!)
         }
+        // Agentgram: the superfolder's tab next to Chats, after or before it, unless turned off in «Agentgram → Tabs»
+        let superfolderController = self.isSuperfolderCreated && AgentgramTabs.showsSuperfolder ? self.superfolderController : nil
+        if let superfolderController, AgentgramTabs.superfolderFirst {
+            controllers.append(superfolderController)
+        }
         controllers.append(self.chatListController!)
+        if let superfolderController, !AgentgramTabs.superfolderFirst {
+            controllers.append(superfolderController)
+        }
         if showNewsTab, let newsController = self.newsController {
             controllers.append(newsController)
         }
@@ -286,7 +353,8 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
             self.popToRoot(animated: false)
         }
         
-        if let index = rootTabController.controllers.firstIndex(where: { $0 is ChatListController}) {
+        // Agentgram
+        if let index = rootTabController.controllers.firstIndex(where: { ($0 as? ChatListController) != nil && ($0 as? ChatListControllerImpl)?.isSuperfolder != true }) {
             rootTabController.selectedIndex = index
         }
         
@@ -615,7 +683,8 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         let folders: [Int64] = results.first?.options.folderIds ?? []
 
         if let rootTabController = self.rootTabController {
-            if let index = rootTabController.controllers.firstIndex(where: { $0 is ChatListController}) {
+            // Agentgram
+            if let index = rootTabController.controllers.firstIndex(where: { ($0 as? ChatListController) != nil && ($0 as? ChatListControllerImpl)?.isSuperfolder != true }) {
                 rootTabController.selectedIndex = index
             }
             if forwardInfo != nil {
@@ -811,7 +880,8 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         
         self.popToRoot(animated: false)
     
-        if let index = rootTabController.controllers.firstIndex(where: { $0 is ChatListController }) {
+        // Agentgram
+        if let index = rootTabController.controllers.firstIndex(where: { ($0 as? ChatListController) != nil && ($0 as? ChatListControllerImpl)?.isSuperfolder != true }) {
             rootTabController.selectedIndex = index
         }
     }

@@ -7,6 +7,8 @@ import TelegramCore
 import SettingsUI
 import PeerInfoStoryGridScreen
 import CallListUI
+// Agentgram
+import ChatListUI
 import PassportUI
 import AccountUtils
 import OverlayStatusController
@@ -17,6 +19,7 @@ import PasswordSetupUI
 import InstantPageCache
 import WalletContext
 import UndoUI
+import AgentgramSettingsUI
 
 extension PeerInfoScreenNode {
     func openSettings(section: PeerInfoSettingsSection) {
@@ -95,6 +98,9 @@ extension PeerInfoScreenNode {
         case .chatFolders:
             let controller = self.context.sharedContext.makeFilterSettingsController(context: self.context, modal: false, scrollToTags: false, dismissed: nil)
             push(controller)
+        // Agentgram
+        case .superfolder:
+            push(superfolderController(context: self.context))
         case .notificationsAndSounds:
             if let settings = self.data?.globalSettings {
                 push(notificationsAndSoundsController(context: self.context, exceptionsList: settings.notificationExceptions))
@@ -307,6 +313,8 @@ extension PeerInfoScreenNode {
                 return
             }
             push(self.context.sharedContext.makeWalletScreen(context: self.context))
+        case .agentgram:
+            push(agentgramSettingsEntry(context: self.context))
         }
     }
 

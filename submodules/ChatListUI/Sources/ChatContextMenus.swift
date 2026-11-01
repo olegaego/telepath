@@ -4,6 +4,8 @@ import SwiftSignalKit
 import ContextUI
 import AccountContext
 import TelegramCore
+// Agentgram
+import Superfolders
 import Display
 import TelegramUIPreferences
 import OverlayStatusController
@@ -108,7 +110,8 @@ func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoI
         return combineLatest(
             context.engine.peers.updatedChatListFilters()
             |> take(1),
-            context.engine.peers.getPinnedItemIds(location: location)
+            // Agentgram
+            chatListPinnedItemIds(engine: context.engine, location: location)
         )
         |> mapToSignal { filters, pinnedItemIds -> Signal<[ContextMenuItem], NoError> in
             let isPinned = pinnedItemIds.contains(.peer(peerId))
@@ -220,8 +223,44 @@ func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoI
                         // against the raw peer id.
                         let canEditFolderMembership = peerId.namespace != Namespaces.Peer.SecretChat
 
+                        // Agentgram
+                        // Moves a chat to the superfolder or back to «Chats». Inside the superfolder, when its chats
+                        // leave «Chats», a single chat can still be shown in both places.
+                        let superfolderSettings = Superfolders.currentSettings(accountPeerId: context.account.peerId)
+                        if superfolderSettings.isCreated, case .chatList = source, !isSavedMessages {
+                            let isMutedValue = chatContextMenuPeerIsMuted(peer: peer, notificationSettings: notificationSettings, globalNotificationSettings: globalNotificationSettings)
+                            let isInside = superfolderIncludes(settings: superfolderSettings, peer: peer, isContact: isContact, isMuted: isMutedValue, isUnread: readCounters.isUnread, accountPeerId: context.account.peerId)
+                            let staysInByType: Bool
+                            if isInside {
+                                var withoutChat = superfolderSettings
+                                withoutChat.includePeerIds.removeAll(where: { $0 == peerId.toInt64() })
+                                withoutChat.pinnedPeerIds.removeAll(where: { $0 == peerId.toInt64() })
+                                staysInByType = superfolderIncludes(settings: withoutChat, peer: peer, isContact: isContact, isMuted: isMutedValue, isUnread: readCounters.isUnread, accountPeerId: context.account.peerId)
+                            } else {
+                                staysInByType = false
+                            }
+                            let title = superfolderSettings.title.isEmpty ? Superfolders.text(.defaultTitle, languageCode: strings.primaryComponent.languageCode) : superfolderSettings.title
+                            items.append(.action(ContextMenuActionItem(text: isInside ? Superfolders.removeFrom(title, languageCode: strings.primaryComponent.languageCode) : Superfolders.moveTo(title, languageCode: strings.primaryComponent.languageCode), icon: { theme in generateTintedImage(image: UIImage(bundleImageName: isInside ? "Chat/Context Menu/MoveToChats" : "Chat/Context Menu/AddToFolder"), color: theme.contextMenu.primaryColor) }, action: { _, f in
+                                Superfolders.setChat(engine: context.engine, peerId: peerId, isInside: !isInside, staysInByType: staysInByType)
+                                f(.dismissWithoutContent)
+                            })))
+                            if isInside, case let .chatList(currentFilter) = source, Superfolders.isOwnFilterId(currentFilter?.id), !superfolderSettings.keepsChatsInChatList {
+                                let isAlsoInChatList = superfolderSettings.alsoInChatListPeerIds.contains(peerId.toInt64())
+                                items.append(.action(ContextMenuActionItem(text: isAlsoInChatList ? Superfolders.text(.notInChats, languageCode: strings.primaryComponent.languageCode) : Superfolders.text(.alsoInChats, languageCode: strings.primaryComponent.languageCode), icon: { theme in generateTintedImage(image: UIImage(bundleImageName: isAlsoInChatList ? "Chat/Context Menu/RemoveFromFolder" : "Chat/Context Menu/Chats"), color: theme.contextMenu.primaryColor) }, action: { _, f in
+                                    let id = peerId.toInt64()
+                                    Superfolders.update(engine: context.engine, { settings in
+                                        settings.alsoInChatListPeerIds.removeAll(where: { $0 == id })
+                                        if !isAlsoInChatList {
+                                            settings.alsoInChatListPeerIds.append(id)
+                                        }
+                                    })
+                                    f(.dismissWithoutContent)
+                                })))
+                            }
+                        }
+
                         var hasRemoveFromFolder = false
-                        if canEditFolderMembership, case let .chatList(currentFilter) = source {
+                        if canEditFolderMembership, case let .chatList(currentFilter) = source, !Superfolders.isOwnFilterId(currentFilter?.id) {
                             if let currentFilter = currentFilter, case let .filter(id, title, emoticon, data) = currentFilter {
                                 items.append(.action(ContextMenuActionItem(text: strings.ChatList_Context_RemoveFromFolder, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: "Chat/Context Menu/RemoveFromFolder"), color: theme.contextMenu.primaryColor) }, action: { c, _ in
                                     let _ = (context.engine.peers.updateChatListFiltersInteractively { filters in
@@ -411,7 +450,8 @@ func chatContextMenuItems(context: AccountContext, peerId: EnginePeer.Id, promoI
                             }
                             
                             items.append(.action(ContextMenuActionItem(text: isPinned ? strings.ChatList_Context_Unpin : strings.ChatList_Context_Pin, icon: { theme in generateTintedImage(image: UIImage(bundleImageName: isPinned ? "Chat/Context Menu/Unpin" : "Chat/Context Menu/Pin"), color: theme.contextMenu.primaryColor) }, action: { c, f in
-                                let _ = (context.engine.peers.toggleItemPinned(location: location, itemId: .peer(peerId))
+                                // Agentgram
+                                let _ = (chatListToggleItemPinned(engine: context.engine, location: location, itemId: .peer(peerId))
                                          |> deliverOnMainQueue).startStandalone(next: { result in
                                     switch result {
                                     case .done:

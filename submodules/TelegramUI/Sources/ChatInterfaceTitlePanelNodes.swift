@@ -1,7 +1,10 @@
 import Foundation
 import UIKit
 import TelegramCore
+// Agentgram
+import ChatListUI
 import AccountContext
+import ThreadedBotSessions
 import ChatPresentationInterfaceState
 import ChatControllerInteraction
 import ComponentFlow
@@ -47,6 +50,25 @@ func titlePanelForChatPresentationInterfaceState(_ chatPresentationInterfaceStat
         } else {
             return nil
         }
+    }
+    
+    // Agentgram: while an agent's session works, its panel stands where the pinned message is
+    if case let .replyThread(message) = chatPresentationInterfaceState.chatLocation, message.peerId.namespace == Namespaces.Peer.CloudUser, let session = AgentgramAgentStatus.session(bot: message.peerId, thread: message.threadId), session.working {
+        if let currentPanel = currentPanel as? AgentgramAgentTitlePanelNode, currentPanel.bot == message.peerId, currentPanel.thread == message.threadId {
+            return currentPanel
+        }
+        let panel = AgentgramAgentTitlePanelNode(context: context, bot: message.peerId, thread: message.threadId)
+        panel.interfaceInteraction = interfaceInteraction
+        return panel
+    }
+    // a bot without topics: its whole chat is one session, thread 0
+    if case let .peer(peerId) = chatPresentationInterfaceState.chatLocation, peerId.namespace == Namespaces.Peer.CloudUser, let session = AgentgramAgentStatus.session(bot: peerId, thread: 0), session.working {
+        if let currentPanel = currentPanel as? AgentgramAgentTitlePanelNode, currentPanel.bot == peerId, currentPanel.thread == 0 {
+            return currentPanel
+        }
+        let panel = AgentgramAgentTitlePanelNode(context: context, bot: peerId, thread: 0)
+        panel.interfaceInteraction = interfaceInteraction
+        return panel
     }
     
     var inhibitTitlePanelDisplay = false
@@ -371,7 +393,12 @@ func headerTopicsPanelForChatPresentationInterfaceState(_ chatPresentationInterf
                 }
             ))
         }
-    } else if let user = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramUser, let botInfo = user.botInfo, botInfo.flags.contains(.hasForum), chatPresentationInterfaceState.search == nil {
+    } else if let user = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramUser, let botInfo = user.botInfo, botInfo.flags.contains(.hasForum) {
+        // Threaded Mode bot: the sessions are listed under the bot in the chat list, no topics switcher in its chat,
+        // unless the bot is set to keep its topics inside (stock Telegram)
+        guard !ThreadedBotSessions.isEnabled || ThreadedBotSessions.currentSettings(accountPeerId: context.account.peerId).bot(user.id).topicsInside, chatPresentationInterfaceState.search == nil else { // Agentgram
+            return nil
+        }
         if !botInfo.flags.contains(.forumManagedByUser) {
             if !chatPresentationInterfaceState.hasTopics {
                 return nil
@@ -491,7 +518,12 @@ func floatingTopicsPanelForChatPresentationInterfaceState(_ chatPresentationInte
                 }
             )
         }
-    } else if let user = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramUser, let botInfo = user.botInfo, botInfo.flags.contains(.hasForum), chatPresentationInterfaceState.search == nil {
+    } else if let user = chatPresentationInterfaceState.renderedPeer?.peer as? TelegramUser, let botInfo = user.botInfo, botInfo.flags.contains(.hasForum) {
+        // Threaded Mode bot: the sessions are listed under the bot in the chat list, no topics switcher in its chat,
+        // unless the bot is set to keep its topics inside (stock Telegram)
+        guard !ThreadedBotSessions.isEnabled || ThreadedBotSessions.currentSettings(accountPeerId: context.account.peerId).bot(user.id).topicsInside, chatPresentationInterfaceState.search == nil else { // Agentgram
+            return nil
+        }
         if !botInfo.flags.contains(.forumManagedByUser) {
             if !chatPresentationInterfaceState.hasTopics {
                 return nil

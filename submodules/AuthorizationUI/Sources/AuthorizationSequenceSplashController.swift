@@ -9,6 +9,7 @@ import TelegramPresentationData
 import LegacyComponents
 import SolidRoundedButtonNode
 import RMIntro
+import AgentgramIntro
 
 public final class AuthorizationSequenceSplashController: ViewController {
     private var controllerNode: AuthorizationSequenceSplashControllerNode {
@@ -19,7 +20,7 @@ public final class AuthorizationSequenceSplashController: ViewController {
     private let account: UnauthorizedAccount
     private let theme: PresentationTheme
     
-    private let controller: RMIntroViewController
+    private let controller: AgentgramIntroController // Agentgram: our welcome pages in place of RMIntroViewController
     
     private var validLayout: ContainerViewLayout?
     
@@ -70,9 +71,9 @@ public final class AuthorizationSequenceSplashController: ViewController {
             })
         })
         
-        self.controller = RMIntroViewController(backgroundColor: theme.list.plainBackgroundColor, primaryColor: theme.list.itemPrimaryTextColor, buttonColor: theme.intro.startButtonColor, accentColor: theme.list.itemAccentColor, regularDotColor: theme.intro.dotColor, highlightedDotColor: theme.list.itemAccentColor, suggestedLocalizationSignal: localizationSignal)
+        self.controller = AgentgramIntroController(backgroundColor: theme.list.plainBackgroundColor, primaryColor: theme.list.itemPrimaryTextColor, accentColor: theme.list.itemAccentColor, regularDotColor: theme.intro.dotColor, highlightedDotColor: theme.list.itemAccentColor, suggestedLocalizationSignal: localizationSignal) // Agentgram
         
-        self.startButton = SolidRoundedButtonNode(title: "Start Messaging", theme: SolidRoundedButtonTheme(theme: theme), glass: false, height: 50.0, cornerRadius: 50.0 * 0.5, isShimmering: true)
+        self.startButton = SolidRoundedButtonNode(title: AgentgramIntroController.startButtonTitle, theme: SolidRoundedButtonTheme(theme: theme), glass: false, height: 50.0, cornerRadius: 50.0 * 0.5, isShimmering: true)
         self.startButton.accessibilityIdentifier = "Auth.Welcome.StartButton"
 
         super.init(navigationBarPresentationData: nil)

@@ -503,7 +503,15 @@ extension ChatControllerImpl {
                                     }))
                                 }
                             }
-                            if let threadId = threadId {
+                            if let threadId = threadId, peerId.namespace == Namespaces.Peer.CloudUser {
+                                // Agentgram: a session of a Threaded Mode bot: open it the way the chat list does, the forward
+                                // waiting in its input
+                                strongSelf.updateChatPresentationInterfaceState(animated: false, interactive: true, { $0.updatedInterfaceState({ $0.withoutSelectionState() }) })
+                                strongController.dismiss()
+                                if let navigationController = strongSelf.effectiveNavigationController {
+                                    let _ = strongSelf.context.sharedContext.navigateToForumThread(context: strongSelf.context, peerId: peerId, threadId: threadId, messageId: nil, navigationController: navigationController, activateInput: nil, scrollToEndIfExists: true, keepStack: .always, animated: true).startStandalone()
+                                }
+                            } else if let threadId = threadId {
                                 let _ = (strongSelf.context.sharedContext.chatControllerForForumThread(context: strongSelf.context, peerId: peerId, threadId: threadId)
                                 |> deliverOnMainQueue).startStandalone(next: { chatController in
                                     proceed(chatController)

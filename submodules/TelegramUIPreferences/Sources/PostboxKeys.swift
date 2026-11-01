@@ -12,6 +12,9 @@ private enum ApplicationSpecificPreferencesKeyValues: Int32 {
     case walletState = 23
     case qrStudioLook = 24
     case qrStudioPeerLook = 25
+    // Agentgram
+    case threadedBotSettings = 26
+    case superfolderSettings = 27
 }
 
 public struct ApplicationSpecificPreferencesKeys {
@@ -23,6 +26,9 @@ public struct ApplicationSpecificPreferencesKeys {
     public static let ageVerificationState: EngineDataBuffer = applicationSpecificPreferencesKey(ApplicationSpecificPreferencesKeyValues.ageVerificationState.rawValue)
     public static let walletState: EngineDataBuffer = applicationSpecificPreferencesKey(ApplicationSpecificPreferencesKeyValues.walletState.rawValue)
     public static let qrStudioLook: EngineDataBuffer = applicationSpecificPreferencesKey(ApplicationSpecificPreferencesKeyValues.qrStudioLook.rawValue)
+    // Agentgram
+    public static let threadedBotSettings: EngineDataBuffer = applicationSpecificPreferencesKey(ApplicationSpecificPreferencesKeyValues.threadedBotSettings.rawValue)
+    public static let superfolderSettings: EngineDataBuffer = applicationSpecificPreferencesKey(ApplicationSpecificPreferencesKeyValues.superfolderSettings.rawValue)
     
     public static func qrStudioPeerLook(peerId: EnginePeer.Id) -> EngineDataBuffer {
         let key = EngineDataBuffer(length: 4 + 8)
