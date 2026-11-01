@@ -50,6 +50,12 @@ private struct ComputersTexts {
     var installSoon: String { ru ? "Готовая установка появится с выходом Agentgram. Пока помощник ставится вручную." : "A ready installer comes with the Agentgram release. For now the helper is installed by hand." }
     var nearbyNow: String { ru ? "в сети, рядом" : "online, nearby" }
     var notNearby: String { ru ? "не в сети рядом" : "not online nearby" }
+    func limitsHeader(_ engine: String) -> String { ru ? "ЛИМИТЫ \(engine.uppercased())" : "\(engine.uppercased()) LIMITS" }
+    var engineFar: String { ru ? "Движок меняется, когда телефон в той же Wi-Fi, что компьютер. Ещё его можно сменить в меню значка Agentgram на компьютере." : "The engine is changed when the phone is on the same Wi-Fi as the computer. It can also be changed in the Agentgram icon's menu on the computer." }
+    var engineTitle: String { ru ? "На чём работает" : "Runs On" }
+    var notInstalled: String { ru ? "не установлен на компьютере" : "not installed on the computer" }
+    var engineFooter: String { ru ? "Лимиты берутся из Claude Code и Codex на компьютере и обновляются после каждого ответа агента. Темы у каждого движка свои: переключил, и в теме начнётся новая сессия.\n\nВходить в Claude Code и Codex нужно на компьютере. Agentgram логины и пароли не спрашивает." : "Limits come from Claude Code and Codex on the computer and update after each answer. Each engine has its own sessions: after a switch, a topic starts a new one.\n\nYou sign in to Claude Code and Codex on the computer. Agentgram never asks for logins or passwords." }
+    var engineFailed: String { ru ? "Не вышло сменить движок. Компьютер рядом?" : "Could not change the engine. Is the computer nearby?" }
     var whereHeader: String { ru ? "ГДЕ РАБОТАЕТ" : "WHERE IT WORKS" }
     var openChatButton: String { ru ? "Открыть чат" : "Open Chat" }
     var computerRow: String { ru ? "Компьютер" : "Computer" }
@@ -251,8 +257,11 @@ public func agentgramIsAgentBot(context: AccountContext, username: String) -> Bo
 }
 
 // A request to a connected computer: the phone's secret and the time, sealed with the computer's key
-func askComputer(_ endpoint: NWEndpoint, _ computer: ConnectedComputer, path: String, completion: @escaping ([String: Any]?) -> Void) {
-    let request: [String: Any] = ["secret": computer.secret, "time": Int64(Date().timeIntervalSince1970)]
+func askComputer(_ endpoint: NWEndpoint, _ computer: ConnectedComputer, path: String, extra: [String: Any] = [:], completion: @escaping ([String: Any]?) -> Void) {
+    var request: [String: Any] = ["secret": computer.secret, "time": Int64(Date().timeIntervalSince1970)]
+    for (key, value) in extra {
+        request[key] = value
+    }
     guard let plain = try? JSONSerialization.data(withJSONObject: request), let sealed = sealForComputer(plain, publicKey: computer.publicKey) else {
         completion(nil)
         return
@@ -423,13 +432,72 @@ func agentgramComputersController(context: AccountContext) -> ViewController {
 private final class ComputerArguments {
     let context: AccountContext
     let openChat: () -> Void
+    let openEngine: () -> Void
     let disconnect: () -> Void
 
-    init(context: AccountContext, openChat: @escaping () -> Void, disconnect: @escaping () -> Void) {
+    init(context: AccountContext, openChat: @escaping () -> Void, openEngine: @escaping () -> Void, disconnect: @escaping () -> Void) {
         self.context = context
         self.openChat = openChat
+        self.openEngine = openEngine
         self.disconnect = disconnect
     }
+}
+
+// The limits the helper sends in /info: per engine, its windows with the used percent and the reset time
+struct EngineLimitWindow: Equatable {
+    let name: String
+    let percent: Double
+    let resetsAt: Int64
+}
+
+func engineLimits(_ info: [String: Any]?, engine: String) -> [EngineLimitWindow] {
+    guard let limits = info?["limits"] as? [String: Any], let one = limits[engine] as? [String: Any], let windows = one["windows"] as? [[String: Any]] else {
+        return []
+    }
+    return windows.compactMap { w in
+        guard let name = w["name"] as? String else {
+            return nil
+        }
+        return EngineLimitWindow(name: name, percent: (w["percent"] as? NSNumber)?.doubleValue ?? 0.0, resetsAt: (w["resets_at"] as? NSNumber)?.int64Value ?? 0)
+    }
+}
+
+func limitWindowTitle(_ name: String, ru: Bool) -> String {
+    switch name {
+    case "5h": return ru ? "5 часов" : "5 hours"
+    case "week": return ru ? "Неделя" : "Week"
+    case "month": return ru ? "Месяц" : "Month"
+    default: return name
+    }
+}
+
+func limitShortTitle(_ name: String, ru: Bool) -> String {
+    switch name {
+    case "5h": return ru ? "5 ч" : "5 h"
+    case "week": return ru ? "неделя" : "week"
+    case "month": return ru ? "месяц" : "month"
+    default: return name
+    }
+}
+
+func limitResetText(_ at: Int64, ru: Bool) -> String {
+    if at == 0 {
+        return ""
+    }
+    let date = Date(timeIntervalSince1970: TimeInterval(at))
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: ru ? "ru_RU" : "en_US")
+    if Calendar.current.isDateInToday(date) {
+        formatter.dateFormat = "HH:mm"
+        return (ru ? "сброс в " : "resets at ") + formatter.string(from: date)
+    }
+    formatter.dateFormat = ru ? "d MMMM" : "MMMM d"
+    return (ru ? "сброс " : "resets ") + formatter.string(from: date)
+}
+
+// «5 ч: 34% · неделя: 81%», for the engine picker
+func limitsSummary(_ windows: [EngineLimitWindow], ru: Bool) -> String {
+    return windows.map { "\(limitShortTitle($0.name, ru: ru)): \(Int($0.percent.rounded()))%" }.joined(separator: " · ")
 }
 
 private let computerEngineIcon = renderSettingsIcon(name: "Item List/Icons/Chatbot", backgroundColors: [UIColor(rgb: 0xFF9500)])
@@ -445,6 +513,8 @@ private enum ComputerEntry: ItemListNodeEntry {
     case sessionsHeader(String)
     case running(String, String)
     case topics(String, String)
+    case limitsHeader(String)
+    case limit(Int32, String, Double, String)
     case disconnect(String)
     case disconnectFooter(String)
 
@@ -453,8 +523,9 @@ private enum ComputerEntry: ItemListNodeEntry {
         case .status: return 0
         case .openChat: return 1
         case .agentHeader, .computer, .engine, .projects: return 2
-        case .sessionsHeader, .running, .topics: return 3
-        case .disconnect, .disconnectFooter: return 4
+        case .limitsHeader, .limit: return 3
+        case .sessionsHeader, .running, .topics: return 4
+        case .disconnect, .disconnectFooter: return 5
         }
     }
 
@@ -466,11 +537,13 @@ private enum ComputerEntry: ItemListNodeEntry {
         case .computer: return 3
         case .engine: return 4
         case .projects: return 5
-        case .sessionsHeader: return 6
-        case .running: return 7
-        case .topics: return 8
-        case .disconnect: return 9
-        case .disconnectFooter: return 10
+        case .limitsHeader: return 6
+        case let .limit(index, _, _, _): return 20 + index
+        case .sessionsHeader: return 40
+        case .running: return 41
+        case .topics: return 42
+        case .disconnect: return 43
+        case .disconnectFooter: return 44
         }
     }
 
@@ -487,12 +560,16 @@ private enum ComputerEntry: ItemListNodeEntry {
             return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: title, kind: .generic, alignment: .center, sectionId: self.section, style: .blocks, action: {
                 arguments.openChat()
             })
-        case let .agentHeader(text), let .sessionsHeader(text):
+        case let .agentHeader(text), let .sessionsHeader(text), let .limitsHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
         case let .computer(title, label):
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: computersRowIcon, title: title, label: label, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
         case let .engine(title, label):
-            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: computerEngineIcon, title: title, label: label, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: computerEngineIcon, title: title, label: label, sectionId: self.section, style: .blocks, action: {
+                arguments.openEngine()
+            })
+        case let .limit(_, title, percent, reset):
+            return AgentgramLimitItem(presentationData: presentationData, title: title, percent: percent, reset: reset, sectionId: self.section)
         case let .projects(title, label):
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: computerProjectsIcon, title: title, label: label, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
         case let .running(title, label), let .topics(title, label):
@@ -513,6 +590,8 @@ func agentgramComputerController(context: AccountContext, computer: ConnectedCom
     var presentImpl: ((ViewController) -> Void)?
     var popImpl: (() -> Void)?
     var openChatImpl: (() -> Void)?
+    var pushImpl: ((ViewController) -> Void)?
+    let infoValue = Atomic<[String: Any]?>(value: nil)
     let nearbyEndpoint: () -> NWEndpoint? = {
         var endpoint: NWEndpoint?
         let _ = (browser.computers.get() |> take(1)).start(next: { found in
@@ -533,6 +612,23 @@ func agentgramComputerController(context: AccountContext, computer: ConnectedCom
 
     let arguments = ComputerArguments(context: context, openChat: {
         openChatImpl?()
+    }, openEngine: {
+        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+        let texts = ComputersTexts(presentationData.strings)
+        guard let endpoint = nearbyEndpoint(), let info = infoValue.with({ $0 }) else {
+            presentImpl?(textAlertController(context: context, title: nil, text: texts.engineFar, actions: [TextAlertAction(type: .defaultAction, title: "OK", action: {})]))
+            return
+        }
+        pushImpl?(agentgramEngineController(context: context, computer: computer, endpoint: endpoint, info: info, changed: { engine in
+            // asked again: the engine and its limits as the computer has them now
+            askComputer(endpoint, computer, path: "/info", completion: { result in
+                let _ = infoValue.swap(result)
+                infoPromise.set(.single(result))
+            })
+            var updated = computer
+            updated.engine = engine
+            ConnectedComputers.add(context, updated)
+        }))
     }, disconnect: {
         let presentationData = context.sharedContext.currentPresentationData.with { $0 }
         let texts = ComputersTexts(presentationData.strings)
@@ -559,6 +655,7 @@ func agentgramComputerController(context: AccountContext, computer: ConnectedCom
         if let nearby, !asked {
             asked = true
             askComputer(nearby.endpoint, computer, path: "/info", completion: { result in
+                let _ = infoValue.swap(result)
                 infoPromise.set(.single(result))
                 // the engine may have been changed on the computer, in its menu
                 if let engine = result?["engine"] as? String, engine != computer.engine {
@@ -568,7 +665,8 @@ func agentgramComputerController(context: AccountContext, computer: ConnectedCom
                 }
             })
         }
-        let engine = ((info?["engine"] as? String) ?? computer.engine) == "codex" ? "Codex" : "Claude Code"
+        let engineID = (info?["engine"] as? String) ?? computer.engine
+        let engine = engineID == "codex" ? "Codex" : "Claude Code"
         var entries: [ComputerEntry] = [
             .status("@" + computer.bot, nearby != nil ? texts.nearbyNow : texts.notNearby, nearby != nil, peer),
             .openChat(texts.openChatButton),
@@ -577,6 +675,13 @@ func agentgramComputerController(context: AccountContext, computer: ConnectedCom
             .engine(texts.engineRow, engine),
             .projects(texts.projectsRow, ((info?["projects"] as? String) ?? computer.projects).replacingOccurrences(of: "^(/Users|/home)/[^/]+", with: "~", options: .regularExpression))
         ]
+        let limits = engineLimits(info, engine: engineID == "codex" ? "codex" : "claude")
+        if !limits.isEmpty {
+            entries.append(.limitsHeader(texts.limitsHeader(engine)))
+            for (i, w) in limits.enumerated() {
+                entries.append(.limit(Int32(i), limitWindowTitle(w.name, ru: texts.ru), w.percent, limitResetText(w.resetsAt, ru: texts.ru)))
+            }
+        }
         if let info {
             entries.append(.sessionsHeader(texts.sessionsHeader))
             entries.append(.running(texts.runningRow, "\((info["running"] as? Int) ?? 0)"))
@@ -595,6 +700,9 @@ func agentgramComputerController(context: AccountContext, computer: ConnectedCom
     }
     popImpl = { [weak controller] in
         let _ = controller?.navigationController?.popViewController(animated: true)
+    }
+    pushImpl = { [weak controller] next in
+        controller?.push(next)
     }
     openChatImpl = { [weak controller] in
         let _ = (botPeer.get()
@@ -760,6 +868,91 @@ func agentgramConnectComputerController(context: AccountContext, computer: Nearb
         controller?.present(next, in: .window(.root))
     }
     dismissImpl = { [weak controller] in
+        let _ = controller?.navigationController?.popViewController(animated: true)
+    }
+    return controller
+}
+
+// «Runs On»: both engines with their limits; a tap switches the computer
+private final class EngineArguments {
+    let select: (String) -> Void
+
+    init(select: @escaping (String) -> Void) {
+        self.select = select
+    }
+}
+
+private enum EngineEntry: ItemListNodeEntry {
+    case engine(Int32, String, String, String, Bool, Bool)
+    case footer(String)
+
+    var section: ItemListSectionId {
+        return 0
+    }
+
+    var stableId: Int32 {
+        switch self {
+        case let .engine(index, _, _, _, _, _): return index
+        case .footer: return 100
+        }
+    }
+
+    static func <(lhs: EngineEntry, rhs: EngineEntry) -> Bool {
+        return lhs.stableId < rhs.stableId
+    }
+
+    func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
+        let arguments = arguments as! EngineArguments
+        switch self {
+        case let .engine(_, id, title, detail, selected, enabled):
+            return ItemListCheckboxItem(presentationData: presentationData, systemStyle: .glass, title: title, subtitle: detail, style: .right, checked: selected, enabled: enabled, zeroSeparatorInsets: false, sectionId: self.section, action: {
+                arguments.select(id)
+            })
+        case let .footer(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        }
+    }
+}
+
+func agentgramEngineController(context: AccountContext, computer: ConnectedComputer, endpoint: NWEndpoint, info: [String: Any], changed: @escaping (String) -> Void) -> ViewController {
+    let current = ValuePromise<String>((info["engine"] as? String) == "codex" ? "codex" : "claude", ignoreRepeated: true)
+    let installed = info["installed"] as? [String: Bool] ?? [:]
+    var presentImpl: ((ViewController) -> Void)?
+    var popImpl: (() -> Void)?
+    let arguments = EngineArguments(select: { engine in
+        askComputer(endpoint, computer, path: "/engine", extra: ["engine": engine], completion: { result in
+            if result?["ok"] as? Bool == true {
+                current.set(engine)
+                changed(engine)
+                popImpl?()
+            } else {
+                let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+                presentImpl?(textAlertController(context: context, title: nil, text: ComputersTexts(presentationData.strings).engineFailed, actions: [TextAlertAction(type: .defaultAction, title: "OK", action: {})]))
+            }
+        })
+    })
+    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, current.get())
+    |> map { presentationData, engine -> (ItemListControllerState, (ItemListNodeState, Any)) in
+        let texts = ComputersTexts(presentationData.strings)
+        var entries: [EngineEntry] = []
+        for (i, (id, title)) in [("claude", "Claude Code"), ("codex", "Codex")].enumerated() {
+            let isInstalled = installed[id] ?? true
+            var detail = isInstalled ? limitsSummary(engineLimits(info, engine: id), ru: texts.ru) : texts.notInstalled
+            if id == "codex", isInstalled, let plan = ((info["limits"] as? [String: Any])?["codex"] as? [String: Any])?["plan"] as? String, plan == "free" {
+                detail += texts.ru ? " · бесплатный тариф" : " · free plan"
+            }
+            entries.append(.engine(Int32(i), id, title, detail, engine == id, isInstalled))
+        }
+        entries.append(.footer(texts.engineFooter))
+        let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(texts.engineTitle), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
+        let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, animateChanges: false)
+        return (controllerState, (listState, arguments))
+    }
+    let controller = ItemListController(context: context, state: signal)
+    presentImpl = { [weak controller] next in
+        controller?.present(next, in: .window(.root))
+    }
+    popImpl = { [weak controller] in
         let _ = controller?.navigationController?.popViewController(animated: true)
     }
     return controller
