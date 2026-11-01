@@ -61,6 +61,11 @@ private struct ComputersTexts {
     var disconnectFooter: String { ru ? "Помощник на компьютере забудет бота и токен. Сам бот и его чаты останутся." : "The helper on the computer forgets the bot and its token. The bot and its chats stay." }
     var disconnectFar: String { ru ? "Компьютер не в этой сети, поэтому он сам не узнает об отключении. Убрать его из списка? Чтобы помощник забыл токен, подключись к той же Wi-Fi или запусти на нём «agentgram-helper pair»." : "The computer is not on this network, so it will not learn about this. Remove it from the list? For the helper to forget the token, join the same Wi-Fi or run «agentgram-helper pair» on it." }
     var remove: String { ru ? "Убрать" : "Remove" }
+    var taken: String { ru ? "уже подключён" : "connected" }
+    func takenText(_ bot: String) -> String {
+        let who = bot.isEmpty ? "" : (ru ? " с ботом @\(bot)" : " with @\(bot)")
+        return ru ? "Этот компьютер уже подключён\(who) к другому телефону или к прошлой установке Agentgram. Чтобы подключить его сюда, запусти на нём «agentgram-helper pair»." : "This computer is already connected\(who) to another phone or an earlier Agentgram install. To connect it here, run «agentgram-helper pair» on it."
+    }
     var tokenHeader: String { ru ? "ТОКЕН БОТА" : "BOT TOKEN" }
     var tokenPlaceholder: String { ru ? "123456789:AA…" : "123456789:AA…" }
     var tokenFooter: String { ru ? "Этот бот будет работать на компьютере: ты пишешь ему, отвечает агент. Токен возьми у @BotFather: /token → выбери бота → скопируй.\n\nТокен уходит только на этот компьютер, напрямую по твоей сети, зашифрованным ключом компьютера. На телефоне он не сохраняется. Код Agentgram открыт, это всегда можно проверить." : "This bot will work on the computer: you write to it, the agent answers. Get the token from @BotFather: /token → pick the bot → copy.\n\nThe token goes only to this computer, straight over your network, encrypted with the computer's key. It is not kept on the phone. Agentgram's code is open, you can always check this." }
@@ -257,11 +262,13 @@ func askComputer(_ endpoint: NWEndpoint, _ computer: ConnectedComputer, path: St
 
 private final class ComputersArguments {
     let connect: (NearbyComputer) -> Void
+    let taken: (NearbyComputer) -> Void
     let open: (ConnectedComputer) -> Void
     let install: () -> Void
 
-    init(connect: @escaping (NearbyComputer) -> Void, open: @escaping (ConnectedComputer) -> Void, install: @escaping () -> Void) {
+    init(connect: @escaping (NearbyComputer) -> Void, taken: @escaping (NearbyComputer) -> Void, open: @escaping (ConnectedComputer) -> Void, install: @escaping () -> Void) {
         self.connect = connect
+        self.taken = taken
         self.open = open
         self.install = install
     }
@@ -311,7 +318,7 @@ private enum ComputersEntry: ItemListNodeEntry {
         let arguments = arguments as! ComputersArguments
         switch self {
         case let .emptyInfo(title, text):
-            return ItemListTextItem(presentationData: presentationData, text: .markdown("**\(title)**\n\n\(text)"), sectionId: self.section)
+            return AgentgramComputerHeaderItem(theme: presentationData.theme, iconColor: UIColor(rgb: 0x8E8E93).withAlphaComponent(0.2), iconSize: 72.0, title: title, text: text, sectionId: self.section)
         case let .installMac(title), let .installWindows(title):
             return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: title, kind: .generic, alignment: .natural, sectionId: self.section, style: .blocks, action: {
                 arguments.install()
@@ -324,7 +331,11 @@ private enum ComputersEntry: ItemListNodeEntry {
             })
         case let .nearby(_, computer, label):
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: computersNearbyIcon, title: computer.name, label: label, sectionId: self.section, style: .blocks, action: {
-                arguments.connect(computer)
+                if computer.paired {
+                    arguments.taken(computer)
+                } else {
+                    arguments.connect(computer)
+                }
             })
         case let .searching(text):
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: text, enabled: false, label: "", sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
@@ -353,7 +364,11 @@ func agentgramComputersController(context: AccountContext) -> ViewController {
             })
         ]))
     }
-    let arguments = ComputersArguments(connect: connect, open: { computer in
+    let arguments = ComputersArguments(connect: connect, taken: { computer in
+        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+        let texts = ComputersTexts(presentationData.strings)
+        presentImpl?(textAlertController(context: context, title: computer.name, text: texts.takenText(computer.bot ?? ""), actions: [TextAlertAction(type: .defaultAction, title: "OK", action: {})]))
+    }, open: { computer in
         pushImpl?(agentgramComputerController(context: context, computer: computer, browser: browser))
     }, install: {
         let presentationData = context.sharedContext.currentPresentationData.with { $0 }
@@ -366,7 +381,7 @@ func agentgramComputersController(context: AccountContext) -> ViewController {
         let texts = ComputersTexts(presentationData.strings)
         let connected = ConnectedComputers.all(context)
         let connectedKeys = Set(connected.map { $0.publicKey })
-        let nearby = found.filter { !$0.paired && !connectedKeys.contains($0.publicKey) }
+        let nearby = found.filter { !connectedKeys.contains($0.publicKey) }
         var entries: [ComputersEntry] = []
         if connected.isEmpty {
             entries.append(.emptyInfo(texts.emptyTitle, texts.emptyText))
@@ -381,7 +396,7 @@ func agentgramComputersController(context: AccountContext) -> ViewController {
         }
         entries.append(.nearbyHeader(texts.nearbyHeader))
         for (i, computer) in nearby.enumerated() {
-            entries.append(.nearby(Int32(i), computer, texts.connect))
+            entries.append(.nearby(Int32(i), computer, computer.paired ? texts.taken : texts.connect))
         }
         if nearby.isEmpty {
             entries.append(.searching(texts.searching))
@@ -408,19 +423,24 @@ func agentgramComputersController(context: AccountContext) -> ViewController {
 // One connected computer: whether it is nearby, its bot, engine, folder, sessions, and «Disconnect»
 
 private final class ComputerArguments {
+    let context: AccountContext
     let openChat: () -> Void
     let disconnect: () -> Void
 
-    init(openChat: @escaping () -> Void, disconnect: @escaping () -> Void) {
+    init(context: AccountContext, openChat: @escaping () -> Void, disconnect: @escaping () -> Void) {
+        self.context = context
         self.openChat = openChat
         self.disconnect = disconnect
     }
 }
 
+private let computerEngineIcon = renderSettingsIcon(name: "Item List/Icons/Chatbot", backgroundColors: [UIColor(rgb: 0xFF9500)])
+private let computerProjectsIcon = renderSettingsIcon(name: "Item List/Icons/Folder", backgroundColors: [UIColor(rgb: 0x007AFF)])
+
 private enum ComputerEntry: ItemListNodeEntry {
-    case status(String)
+    case status(String, String, Bool)
     case agentHeader(String)
-    case bot(String, String)
+    case bot(String, String, EnginePeer?)
     case engine(String, String)
     case projects(String, String)
     case sessionsHeader(String)
@@ -460,15 +480,19 @@ private enum ComputerEntry: ItemListNodeEntry {
     func item(presentationData: ItemListPresentationData, arguments: Any) -> ListViewItem {
         let arguments = arguments as! ComputerArguments
         switch self {
-        case let .status(text):
-            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .status(name, text, nearby):
+            return AgentgramComputerHeaderItem(theme: presentationData.theme, iconColor: UIColor(rgb: 0x5856D6), iconSize: 64.0, title: name, status: text, statusColor: nearby ? UIColor(rgb: 0x34C759) : UIColor(rgb: 0x8E8E93), sectionId: self.section)
         case let .agentHeader(text), let .sessionsHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
-        case let .bot(title, label):
-            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: computersRowIcon, title: title, label: label, sectionId: self.section, style: .blocks, action: {
+        case let .bot(title, label, peer):
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: peer == nil ? computersRowIcon : nil, context: arguments.context, iconPeer: peer, title: title, label: label, sectionId: self.section, style: .blocks, action: {
                 arguments.openChat()
             })
-        case let .engine(title, label), let .projects(title, label), let .running(title, label), let .topics(title, label):
+        case let .engine(title, label):
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: computerEngineIcon, title: title, label: label, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
+        case let .projects(title, label):
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: computerProjectsIcon, title: title, label: label, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
+        case let .running(title, label), let .topics(title, label):
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, title: title, label: label, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
         case let .disconnect(title):
             return ItemListActionItem(presentationData: presentationData, systemStyle: .glass, title: title, kind: .destructive, alignment: .center, sectionId: self.section, style: .blocks, action: {
@@ -494,7 +518,17 @@ func agentgramComputerController(context: AccountContext, computer: ConnectedCom
         return endpoint
     }
 
-    let arguments = ComputerArguments(openChat: {
+    // the bot's own avatar on its row, and the chat opens from the same peer
+    let botPeer = Promise<EnginePeer?>(nil)
+    botPeer.set(.single(nil) |> then(context.engine.peers.resolvePeerByName(name: computer.bot, referrer: nil)
+    |> mapToSignal { result -> Signal<EnginePeer?, NoError> in
+        if case let .result(peer) = result {
+            return .single(peer)
+        }
+        return .complete()
+    }))
+
+    let arguments = ComputerArguments(context: context, openChat: {
         openChatImpl?()
     }, disconnect: {
         let presentationData = context.sharedContext.currentPresentationData.with { $0 }
@@ -515,8 +549,8 @@ func agentgramComputerController(context: AccountContext, computer: ConnectedCom
         }
     })
 
-    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, browser.computers.get(), infoPromise.get())
-    |> map { presentationData, found, info -> (ItemListControllerState, (ItemListNodeState, Any)) in
+    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, browser.computers.get(), infoPromise.get(), botPeer.get())
+    |> map { presentationData, found, info, peer -> (ItemListControllerState, (ItemListNodeState, Any)) in
         let texts = ComputersTexts(presentationData.strings)
         let nearby = found.first(where: { $0.publicKey == computer.publicKey })
         if let nearby, !asked {
@@ -527,9 +561,9 @@ func agentgramComputerController(context: AccountContext, computer: ConnectedCom
         }
         let engine = computer.engine == "codex" ? "Codex" : "Claude Code"
         var entries: [ComputerEntry] = [
-            .status("● " + (nearby != nil ? texts.nearbyNow : texts.notNearby)),
+            .status(computer.name, nearby != nil ? texts.nearbyNow : texts.notNearby, nearby != nil),
             .agentHeader(texts.agentHeader),
-            .bot("@" + computer.bot, texts.openChat),
+            .bot("@" + computer.bot, texts.openChat, peer),
             .engine(texts.engineRow, engine),
             .projects(texts.projectsRow, ((info?["projects"] as? String) ?? computer.projects).replacingOccurrences(of: "^(/Users|/home)/[^/]+", with: "~", options: .regularExpression))
         ]
@@ -553,13 +587,8 @@ func agentgramComputerController(context: AccountContext, computer: ConnectedCom
         let _ = controller?.navigationController?.popViewController(animated: true)
     }
     openChatImpl = { [weak controller] in
-        let _ = (context.engine.peers.resolvePeerByName(name: computer.bot, referrer: nil)
-        |> mapToSignal { result -> Signal<EnginePeer?, NoError> in
-            if case let .result(peer) = result {
-                return .single(peer)
-            }
-            return .complete()
-        }
+        let _ = (botPeer.get()
+        |> filter { $0 != nil }
         |> take(1)
         |> deliverOnMainQueue).start(next: { peer in
             guard let peer, let navigationController = controller?.navigationController as? NavigationController else {
