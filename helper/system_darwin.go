@@ -26,11 +26,20 @@ func notify(title, text string) {
 }
 
 func alert(title, text string) {
-	_, _ = osascript("display dialog " + appleScriptString(text) + " with title " + appleScriptString(title) + ` buttons {"Понятно"} default button 1`)
+	_, _ = osascript("display dialog " + appleScriptString(text) + " with title " + appleScriptString(title) + appIcon() + ` buttons {"Понятно"} default button 1`)
+}
+
+// the app's own icon in its dialogs, when it runs as Agentgram Helper.app
+func appIcon() string {
+	icns := filepath.Join(filepath.Dir(executablePath()), "..", "Resources", "AppIcon.icns")
+	if _, err := os.Stat(icns); err != nil {
+		return ""
+	}
+	return " with icon (POSIX file " + appleScriptString(icns) + ")"
 }
 
 func confirm(text string) bool {
-	out, err := osascript("display dialog " + appleScriptString(text) + ` with title "Agentgram" buttons {"Отмена", "Отключить"} default button 1 cancel button 1`)
+	out, err := osascript("display dialog " + appleScriptString(text) + ` with title "Agentgram"` + appIcon() + ` buttons {"Отмена", "Отключить"} default button 1 cancel button 1`)
 	return err == nil && strings.Contains(out, "Отключить")
 }
 

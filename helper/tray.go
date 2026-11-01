@@ -134,7 +134,7 @@ func (t *Tray) Waiting(code string) {
 	t.code.Show()
 	t.openChat.Hide()
 	t.unpair.Hide()
-	welcome(code)
+	t.welcome(code, "")
 }
 
 func (t *Tray) Paired(bot, engine string) {
@@ -149,6 +149,7 @@ func (t *Tray) Working(bot, engine string) {
 	t.openChat.Show()
 	t.unpair.Show()
 	t.showStatus()
+	t.welcome("", bot)
 }
 
 func (t *Tray) showStatus() {
@@ -172,19 +173,26 @@ func engineName(engine string) string {
 	return "Claude Code"
 }
 
-// The greeting, once per start while the computer is not connected: where the icon is and what to do on the phone
-var welcomed bool
-
-func welcome(code string) {
-	if welcomed {
+// The greeting, at the very first start: that the helper lives as an icon, and what to do now on the phone (or, when
+// already connected, which bot works here)
+func (t *Tray) welcome(code, bot string) {
+	cfg, _ := loadConfig()
+	if cfg.WelcomeShown {
 		return
 	}
-	welcomed = true
-	place := "в строке меню наверху"
+	cfg.WelcomeShown = true
+	_ = saveConfig(cfg)
+	place := "в строке меню, наверху справа"
 	if isWindows {
-		place = "у часов внизу"
+		place = "у часов, внизу справа"
 	}
-	go alert("Agentgram для компьютера запущен", "Он живёт значком "+place+".\n\nТеперь открой Agentgram на телефоне: Настройки → Agentgram → Агенты. Этот компьютер появится там, нажми «Подключить».\n\nКод этого компьютера: "+code+". Он должен совпасть с кодом на телефоне.")
+	text := "Привет! Agentgram для компьютера работает тихо, без окон. Он живёт значком " + place + ": там статус, папка проектов и настройки.\n\n"
+	if bot == "" {
+		text += "Теперь открой Agentgram на телефоне: Настройки → Agentgram → Агенты. Этот компьютер появится там, нажми «Подключить».\n\nКод этого компьютера: " + code + ". Он должен совпасть с кодом на телефоне."
+	} else {
+		text += "Компьютер уже подключён: @" + bot + " работает здесь. Пиши ему в Telegram."
+	}
+	go alert("Agentgram для компьютера", text)
 }
 
 // One helper per computer: two would both take the bot's messages

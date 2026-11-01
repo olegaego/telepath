@@ -18,6 +18,7 @@ type Config struct {
 	BotName        string `json:"bot_name"`
 	PhoneSecret    string `json:"phone_secret"`    // from the phone that connected this computer, for its later requests
 	AutostartAsked bool   `json:"autostart_asked"` // start at login was turned on once, at the first start
+	WelcomeShown   bool   `json:"welcome_shown"`   // the first start's greeting was shown
 }
 
 type TopicState struct {
