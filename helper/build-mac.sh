@@ -1,6 +1,6 @@
 #!/bin/sh
 # Agentgram Helper.app for the Mac: the helper with its menu-bar icon, no Dock icon, no terminal.
-# Signed ad hoc here; for others it is signed with Developer ID and notarized before a release.
+# Signed with Developer ID; NOTARIZE=1 also sends it to Apple's check, so it opens on any Mac without warnings.
 set -e
 cd "$(dirname "$0")"
 APP="dist/Agentgram Helper.app"
@@ -40,5 +40,19 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
-codesign --force --deep --sign - "$APP"
+# Developer ID when the Mac has it (hardened runtime, as Apple's check wants), else ad hoc for this Mac only
+IDENTITY=$(security find-identity -v -p codesigning | sed -n 's/.*"\(Developer ID Application: [^"]*\)".*/\1/p' | head -1)
+if [ -n "$IDENTITY" ]; then
+	codesign --force --options runtime --timestamp --sign "$IDENTITY" "$APP"
+else
+	codesign --force --deep --sign - "$APP"
+fi
+# NOTARIZE=1: Apple's check (notarytool profile «agentgram-notary»), the answer stapled to the app; then a zip to publish
+if [ "$NOTARIZE" = 1 ]; then
+	ditto -c -k --keepParent "$APP" dist/notarize.zip
+	xcrun notarytool submit dist/notarize.zip --keychain-profile agentgram-notary --wait
+	xcrun stapler staple "$APP"
+	rm dist/notarize.zip
+	ditto -c -k --keepParent "$APP" "dist/Agentgram-Helper-mac.zip"
+fi
 echo "$APP"
