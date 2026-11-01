@@ -6,8 +6,11 @@ import SwiftSignalKit
 import TelegramPresentationData
 import ItemListUI
 import AppBundle
+import TelegramCore
+import AccountContext
+import AvatarNode
 
-// The top of the computer screens, as in the mockups: a big computer icon, the name in bold, and under it a status
+// The top of the computer and agent screens, as in the mockups: a big computer icon (or the bot's avatar), the name in bold, and under it a status
 // with a coloured dot or a line of text. No card behind it, it sits on the list's background.
 
 final class AgentgramComputerHeaderItem: ListViewItem, ItemListItem {
@@ -18,9 +21,13 @@ final class AgentgramComputerHeaderItem: ListViewItem, ItemListItem {
     let status: String?
     let statusColor: UIColor?
     let text: String?
+    let context: AccountContext?
+    let peer: EnginePeer?
     let sectionId: ItemListSectionId
 
-    init(theme: PresentationTheme, iconColor: UIColor, iconSize: CGFloat, title: String, status: String? = nil, statusColor: UIColor? = nil, text: String? = nil, sectionId: ItemListSectionId) {
+    init(theme: PresentationTheme, iconColor: UIColor, iconSize: CGFloat, title: String, status: String? = nil, statusColor: UIColor? = nil, text: String? = nil, context: AccountContext? = nil, peer: EnginePeer? = nil, sectionId: ItemListSectionId) {
+        self.context = context
+        self.peer = peer
         self.theme = theme
         self.iconColor = iconColor
         self.iconSize = iconSize
@@ -86,6 +93,7 @@ private func computerIcon(size: CGFloat, color: UIColor, glyphColor: UIColor) ->
 
 final class AgentgramComputerHeaderItemNode: ListViewItemNode {
     private let iconNode: ASImageNode
+    private let avatarNode: AvatarNode
     private let titleNode: TextNode
     private let dotNode: ASImageNode
     private let statusNode: TextNode
@@ -95,6 +103,7 @@ final class AgentgramComputerHeaderItemNode: ListViewItemNode {
         self.iconNode = ASImageNode()
         self.iconNode.isLayerBacked = true
         self.iconNode.displaysAsynchronously = false
+        self.avatarNode = AvatarNode(font: avatarPlaceholderFont(size: 28.0))
         self.titleNode = TextNode()
         self.titleNode.isUserInteractionEnabled = false
         self.dotNode = ASImageNode()
@@ -108,6 +117,7 @@ final class AgentgramComputerHeaderItemNode: ListViewItemNode {
         super.init(layerBacked: false)
 
         self.addSubnode(self.iconNode)
+        self.addSubnode(self.avatarNode)
         self.addSubnode(self.titleNode)
         self.addSubnode(self.dotNode)
         self.addSubnode(self.statusNode)
@@ -145,8 +155,18 @@ final class AgentgramComputerHeaderItemNode: ListViewItemNode {
                 let _ = textApply()
                 let center = params.leftInset + (params.width - params.leftInset - params.rightInset) / 2.0
 
-                self.iconNode.image = computerIcon(size: item.iconSize, color: item.iconColor, glyphColor: item.text != nil ? item.theme.list.itemSecondaryTextColor : .white)
-                self.iconNode.frame = CGRect(x: floor(center - item.iconSize / 2.0), y: top, width: item.iconSize, height: item.iconSize)
+                let iconFrame = CGRect(x: floor(center - item.iconSize / 2.0), y: top, width: item.iconSize, height: item.iconSize)
+                if let context = item.context, let peer = item.peer {
+                    self.iconNode.isHidden = true
+                    self.avatarNode.isHidden = false
+                    self.avatarNode.frame = iconFrame
+                    self.avatarNode.setPeer(context: context, theme: item.theme, peer: peer, displayDimensions: iconFrame.size)
+                } else {
+                    self.avatarNode.isHidden = true
+                    self.iconNode.isHidden = false
+                    self.iconNode.image = computerIcon(size: item.iconSize, color: item.iconColor, glyphColor: item.text != nil ? item.theme.list.itemSecondaryTextColor : .white)
+                    self.iconNode.frame = iconFrame
+                }
                 var y = top + item.iconSize + 12.0
                 self.titleNode.frame = CGRect(origin: CGPoint(x: floor(center - titleLayout.size.width / 2.0), y: y), size: titleLayout.size)
                 y += titleLayout.size.height

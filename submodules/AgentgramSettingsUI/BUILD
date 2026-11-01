@@ -17,6 +17,7 @@ swift_library(
         "//submodules/TelegramPresentationData:TelegramPresentationData",
         "//submodules/TelegramUIPreferences:TelegramUIPreferences",
         "//submodules/ItemListUI:ItemListUI",
+        "//submodules/AvatarNode:AvatarNode",
         "//submodules/PresentationDataUtils:PresentationDataUtils",
         "//submodules/AccountContext:AccountContext",
         "//submodules/AppBundle:AppBundle",

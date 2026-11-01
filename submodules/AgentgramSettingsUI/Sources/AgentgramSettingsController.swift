@@ -31,12 +31,13 @@ private struct AgentgramTexts {
     var tabs: String { ru ? "Вкладки" : "Tabs" }
     var superfolder: String { ru ? "Суперпапка" : "Superfolder" }
     var agentsHeader: String { ru ? "АГЕНТЫ" : "AGENTS" }
-    var computers: String { ru ? "Компьютеры" : "Computers" }
-    var engines: String { ru ? "Движки" : "Engines" }
-    var agents: String { ru ? "Агенты" : "Agents" }
-    var soon: String { ru ? "скоро" : "soon" }
+    var addComputer: String { ru ? "Подключить компьютер" : "Connect a Computer" }
+    var nearbyNow: String { ru ? "рядом" : "nearby" }
+    var notConnected: String { ru ? "рядом, ещё не подключён" : "nearby, not connected" }
+    var connectedElsewhere: String { ru ? "рядом, уже подключён" : "nearby, connected" }
+    var connect: String { ru ? "Подключить" : "Connect" }
     var create: String { ru ? "создать" : "create" }
-    var agentsFooter: String { ru ? "Подключение Claude Code, Codex и своих компьютеров появится в следующих версиях." : "Connecting Claude Code, Codex and your computers is coming in the next versions." }
+    var agentsFooter: String { ru ? "Агент это твой бот, который работает на твоём компьютере. Пишешь боту, отвечает Claude Code или Codex." : "An agent is your bot working on your computer. You write to the bot, Claude Code or Codex answers." }
     var sessionsUnderBot: String { ru ? "Сессии под ботом" : "Sessions Under the Bot" }
     var stockTopics: String { ru ? "Обычные темы Telegram" : "Telegram's Own Topics" }
     var topicsHeader: String { ru ? "ТЕМЫ БОТОВ" : "BOT TOPICS" }
@@ -60,9 +61,8 @@ private func icon(_ name: String, _ rgb: UInt32) -> UIImage? {
 private let topicsIcon = icon("Item List/Icons/Topics", 0x2AABEE)
 private let tabsIcon = icon("Item List/Icons/Multiple", 0x5856D6)
 private let superfolderIcon = icon("Item List/Icons/Folder", 0xFF9500)
-private let computersIcon = icon("Item List/Icons/Devices", 0x5856D6)
-private let enginesIcon = icon("Item List/Icons/Chatbot", 0x8E8E93)
-private let agentsIcon = icon("Item List/Icons/Bot", 0x8E8E93)
+private let nearbyComputerIcon = icon("Item List/Icons/Devices", 0x8E8E93)
+private let addComputerIcon = icon("Item List/Icons/Add", 0x2AABEE)
 private let chatsIcon = icon("Item List/Icons/Chat", 0x2AABEE)
 private let contactsIcon = icon("Item List/Icons/Profile", 0x8E8E93)
 private let callsIcon = icon("Item List/Icons/Phone", 0x34C759)
@@ -87,12 +87,18 @@ private final class MainArguments {
     let openTabs: () -> Void
     let openSuperfolder: () -> Void
     let openComputers: () -> Void
+    let openAgent: (ConnectedComputer) -> Void
+    let connectNearby: (NearbyComputer) -> Void
+    let context: AccountContext
 
-    init(openTopicsView: @escaping () -> Void, openTabs: @escaping () -> Void, openSuperfolder: @escaping () -> Void, openComputers: @escaping () -> Void) {
+    init(context: AccountContext, openTopicsView: @escaping () -> Void, openTabs: @escaping () -> Void, openSuperfolder: @escaping () -> Void, openComputers: @escaping () -> Void, openAgent: @escaping (ConnectedComputer) -> Void, connectNearby: @escaping (NearbyComputer) -> Void) {
+        self.context = context
         self.openTopicsView = openTopicsView
         self.openTabs = openTabs
         self.openSuperfolder = openSuperfolder
         self.openComputers = openComputers
+        self.openAgent = openAgent
+        self.connectNearby = connectNearby
     }
 }
 
@@ -102,16 +108,16 @@ private enum MainEntry: ItemListNodeEntry {
     case tabs(String)
     case superfolder(String, String)
     case agentsHeader(String)
-    case computers(String, String)
-    case engines(String, String)
-    case agents(String, String)
+    case agent(Int32, ConnectedComputer, EnginePeer?, String, String)
+    case nearby(Int32, NearbyComputer, String, String)
+    case addComputer(String)
     case agentsFooter(String)
 
     var section: ItemListSectionId {
         switch self {
         case .viewHeader, .topicsView, .tabs, .superfolder:
             return 0
-        case .agentsHeader, .computers, .engines, .agents, .agentsFooter:
+        case .agentsHeader, .agent, .nearby, .addComputer, .agentsFooter:
             return 1
         }
     }
@@ -123,10 +129,10 @@ private enum MainEntry: ItemListNodeEntry {
         case .tabs: return 2
         case .superfolder: return 3
         case .agentsHeader: return 4
-        case .computers: return 5
-        case .engines: return 6
-        case .agents: return 7
-        case .agentsFooter: return 8
+        case let .agent(index, _, _, _, _): return 100 + index
+        case let .nearby(index, _, _, _): return 500 + index
+        case .addComputer: return 900
+        case .agentsFooter: return 901
         }
     }
 
@@ -151,14 +157,18 @@ private enum MainEntry: ItemListNodeEntry {
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: superfolderIcon, title: title, label: label, sectionId: self.section, style: .blocks, action: {
                 arguments.openSuperfolder()
             })
-        case let .computers(title, label):
-            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: computersIcon, title: title, label: label, sectionId: self.section, style: .blocks, action: {
+        case let .agent(_, computer, peer, detail, label):
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: peer == nil ? nearbyComputerIcon : nil, context: arguments.context, iconPeer: peer, title: "@" + computer.bot, label: label, labelStyle: .coloredText(UIColor(rgb: 0x34C759)), additionalDetailLabel: detail, sectionId: self.section, style: .blocks, action: {
+                arguments.openAgent(computer)
+            })
+        case let .nearby(_, computer, detail, label):
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: nearbyComputerIcon, title: computer.name, label: label, labelStyle: .coloredText(presentationData.theme.list.itemAccentColor), additionalDetailLabel: detail, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: {
+                arguments.connectNearby(computer)
+            })
+        case let .addComputer(title):
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: addComputerIcon, title: title, titleColor: .accent, label: "", sectionId: self.section, style: .blocks, action: {
                 arguments.openComputers()
             })
-        case let .engines(title, label):
-            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: enginesIcon, title: title, enabled: false, label: label, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
-        case let .agents(title, label):
-            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: agentsIcon, title: title, enabled: false, label: label, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: nil)
         case let .agentsFooter(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
         }
@@ -167,7 +177,36 @@ private enum MainEntry: ItemListNodeEntry {
 
 public func agentgramSettingsController(context: AccountContext) -> ViewController {
     var pushImpl: ((ViewController) -> Void)?
-    let arguments = MainArguments(openTopicsView: {
+    var presentImpl: ((ViewController) -> Void)?
+    // agents are listed right here; computers nearby are looked for while the screen is open
+    let browser = ComputersBrowser()
+    browser.start()
+    let agentPeers: Signal<[String: EnginePeer], NoError> = ConnectedComputers.changed.get()
+    |> mapToSignal { _ -> Signal<[String: EnginePeer], NoError> in
+        let bots = ConnectedComputers.all(context).map { $0.bot }
+        if bots.isEmpty {
+            return .single([:])
+        }
+        return combineLatest(bots.map { bot in
+            context.engine.peers.resolvePeerByName(name: bot, referrer: nil)
+            |> mapToSignal { result -> Signal<EnginePeer?, NoError> in
+                if case let .result(peer) = result {
+                    return .single(peer)
+                }
+                return .complete()
+            }
+            |> take(1)
+            |> map { peer -> (String, EnginePeer?) in (bot, peer) }
+        })
+        |> map { pairs -> [String: EnginePeer] in
+            var result: [String: EnginePeer] = [:]
+            for (bot, peer) in pairs {
+                result[bot] = peer
+            }
+            return result
+        }
+    }
+    let arguments = MainArguments(context: context, openTopicsView: {
         pushImpl?(agentgramTopicsViewController(context: context))
     }, openTabs: {
         pushImpl?(agentgramTabsController(context: context))
@@ -175,10 +214,14 @@ public func agentgramSettingsController(context: AccountContext) -> ViewControll
         pushImpl?(superfolderController(context: context))
     }, openComputers: {
         pushImpl?(agentgramComputersController(context: context))
+    }, openAgent: { computer in
+        pushImpl?(agentgramComputerController(context: context, computer: computer, browser: browser))
+    }, connectNearby: { computer in
+        agentgramConnectNearby(context: context, computer: computer, present: { presentImpl?($0) }, push: { pushImpl?($0) })
     })
 
-    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, ThreadedBotSessions.settings(engine: context.engine), Superfolders.settings(engine: context.engine))
-    |> map { presentationData, settings, superfolder -> (ItemListControllerState, (ItemListNodeState, Any)) in
+    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, ThreadedBotSessions.settings(engine: context.engine), Superfolders.settings(engine: context.engine), browser.computers.get(), ConnectedComputers.changed.get(), .single([:]) |> then(agentPeers))
+    |> map { presentationData, settings, superfolder, found, _, peers -> (ItemListControllerState, (ItemListNodeState, Any)) in
         let texts = AgentgramTexts(presentationData.strings)
         var entries: [MainEntry] = []
         entries.append(.viewHeader(texts.viewHeader))
@@ -186,18 +229,31 @@ public func agentgramSettingsController(context: AccountContext) -> ViewControll
         entries.append(.tabs(texts.tabs))
         entries.append(.superfolder(texts.superfolder, superfolder.isCreated ? superfolder.title : texts.create))
         entries.append(.agentsHeader(texts.agentsHeader))
-        entries.append(.computers(texts.computers, ""))
-        entries.append(.engines(texts.engines, texts.soon))
-        entries.append(.agents(texts.agents, texts.soon))
+        let connected = ConnectedComputers.all(context)
+        for (i, computer) in connected.enumerated() {
+            let engine = computer.engine == "codex" ? "Codex" : "Claude Code"
+            let near = found.contains(where: { $0.publicKey == computer.publicKey })
+            entries.append(.agent(Int32(i), computer, peers[computer.bot], "\(computer.name) · \(engine)", near ? texts.nearbyNow : ""))
+        }
+        let connectedKeys = Set(connected.map { $0.publicKey })
+        for (i, computer) in found.filter({ !connectedKeys.contains($0.publicKey) }).enumerated() {
+            entries.append(.nearby(Int32(i), computer, computer.paired ? texts.connectedElsewhere : texts.notConnected, computer.paired ? "" : texts.connect))
+        }
+        entries.append(.addComputer(texts.addComputer))
         entries.append(.agentsFooter(texts.agentsFooter))
         let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(texts.title), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, animateChanges: false)
         return (controllerState, (listState, arguments))
     }
 
-    let controller = ItemListController(context: context, state: signal)
+    let controller = ItemListController(context: context, state: signal |> afterDisposed {
+        browser.stop()
+    })
     pushImpl = { [weak controller] next in
         controller?.push(next)
+    }
+    presentImpl = { [weak controller] next in
+        controller?.present(next, in: .window(.root))
     }
     return controller
 }
