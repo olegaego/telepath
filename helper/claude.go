@@ -59,29 +59,40 @@ func describeTool(name string, input map[string]any) string {
 	return trim(strings.TrimSpace(word+" "+target), 120)
 }
 
-type ClaudeTurn struct {
-	engineProcess
-	Model string
+func claudeBinary() string {
+	if p, err := exec.LookPath("claude"); err == nil {
+		return p
+	}
+	home := homeDir()
+	for _, p := range []string{filepath.Join(home, ".local", "bin", "claude"), filepath.Join(home, ".claude", "local", "claude")} {
+		if fileExists(p) {
+			return p
+		}
+	}
+	return "claude"
 }
 
-func (t *ClaudeTurn) Run(cwd, session, prompt string, ev TurnEvents) TurnResult {
-	args := []string{"-p", "--output-format", "stream-json", "--verbose",
-		"--permission-mode", "bypassPermissions", "--append-system-prompt", topicPrompt}
-	if session != "" {
-		args = append(args, "--resume", session)
+type limitedWriter struct {
+	b   *strings.Builder
+	max int
+}
+
+func (w *limitedWriter) Write(p []byte) (int, error) {
+	if w.b.Len() < w.max {
+		w.b.Write(p)
 	}
-	if t.Model != "" {
-		args = append(args, "--model", t.Model)
-	}
-	args = append(args, prompt)
-	sc, stderr, err := t.start(claudeBinary(), args, cwd)
-	if err != nil {
-		return TurnResult{Error: err.Error()}
-	}
+	return len(p), nil
+}
+
+// Reads one turn of Claude Code's stream-json from `next` until its result; false when the lines ended first
+func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents) (TurnResult, bool) {
 	result := TurnResult{}
-	gotResult := false
 	contextUsed, contextMax := 0, 200000
-	for sc.Scan() {
+	for {
+		line, ok := next()
+		if !ok {
+			return result, false
+		}
 		var e struct {
 			Type      string `json:"type"`
 			SessionID string `json:"session_id"`
@@ -106,7 +117,7 @@ func (t *ClaudeTurn) Run(cwd, session, prompt string, ev TurnEvents) TurnResult 
 				} `json:"content"`
 			} `json:"message"`
 		}
-		if json.Unmarshal(sc.Bytes(), &e) != nil {
+		if json.Unmarshal(line, &e) != nil {
 			continue
 		}
 		if e.SessionID != "" && ev.Session != nil {
@@ -122,7 +133,7 @@ func (t *ClaudeTurn) Run(cwd, session, prompt string, ev TurnEvents) TurnResult 
 				}
 			}
 		case "rate_limit_event":
-			if l, ok := claudeLimits(sc.Bytes()); ok && ev.Limits != nil {
+			if l, ok := claudeLimits(line); ok && ev.Limits != nil {
 				ev.Limits(l)
 			}
 		case "assistant":
@@ -136,7 +147,6 @@ func (t *ClaudeTurn) Run(cwd, session, prompt string, ev TurnEvents) TurnResult 
 				}
 			}
 		case "result":
-			gotResult = true
 			for _, u := range e.ModelUsage {
 				if u.ContextWindow > 0 && contextUsed > 0 && ev.Context != nil {
 					contextMax = u.ContextWindow
@@ -149,37 +159,7 @@ func (t *ClaudeTurn) Run(cwd, session, prompt string, ev TurnEvents) TurnResult 
 			} else {
 				result.Text = e.Result
 			}
+			return result, true
 		}
 	}
-	t.finish()
-	if !gotResult && result.Error == "" {
-		result.Error = firstNonEmpty(strings.TrimSpace(stderr.String()), "Claude Code остановился")
-	}
-	return result
-}
-
-// Where `claude` is: on PATH, or where its installer puts it
-func claudeBinary() string {
-	if p, err := exec.LookPath("claude"); err == nil {
-		return p
-	}
-	home := homeDir()
-	for _, p := range []string{filepath.Join(home, ".local", "bin", "claude"), filepath.Join(home, ".claude", "local", "claude")} {
-		if fileExists(p) {
-			return p
-		}
-	}
-	return "claude"
-}
-
-type limitedWriter struct {
-	b   *strings.Builder
-	max int
-}
-
-func (w *limitedWriter) Write(p []byte) (int, error) {
-	if w.b.Len() < w.max {
-		w.b.Write(p)
-	}
-	return len(p), nil
 }

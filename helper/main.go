@@ -128,6 +128,18 @@ type Turn interface {
 	Stop()
 }
 
+// A turn whose engine lives between messages (Claude Code now): the topic keeps it, listens to it while idle and
+// closes it after a quiet while
+type LiveTurn interface {
+	Turn
+	Woke() bool
+	Wake() <-chan struct{}
+	Close()
+}
+
+// A topic's living engine is closed after this long without messages; the next one starts it again with its session
+var liveIdle = 30 * time.Minute
+
 func (h *Helper) engine() string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -151,7 +163,15 @@ func (h *Helper) newTurn() Turn {
 		h.mu.Unlock()
 		return &ChatTurn{Model: model, Key: key}
 	}
-	return &ClaudeTurn{Model: model}
+	return &ClaudeLiveTurn{Model: model}
+}
+
+// what the topic's turn is made with: a change of the engine or its model makes a new one
+func (h *Helper) turnKind() string {
+	engine := h.engine()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return engine + "/" + h.cfg.Models[engine]
 }
 
 func (h *Helper) statusesMode() string {
@@ -244,7 +264,10 @@ func (h *Helper) heard(u *User) {
 
 type topicWork struct {
 	turn  Turn
+	kind  string // turnKind() of the turn
 	queue []string
+	busy  bool          // a turn goes
+	wake  chan struct{} // a message was queued
 }
 
 type pendingChoice struct {
@@ -262,6 +285,7 @@ func (h *Helper) loop(stop chan struct{}) {
 	for {
 		select {
 		case <-stop:
+			h.closeTopics()
 			return
 		default:
 		}
@@ -600,38 +624,113 @@ func (h *Helper) stop(key string) {
 	}
 }
 
-// One turn at a time in a topic; what comes meanwhile waits and goes next
+// One turn at a time in a topic; what comes meanwhile waits and goes next. The topic stays with its engine between
+// messages: a turn the engine starts by itself (its background task finished) goes to the topic as its own answer.
 func (h *Helper) enqueue(chat, thread int64, t TopicState, prompt string) {
 	key := topicKey(chat, thread)
-	turn := h.newTurn() // before the lock: choosing the engine takes it too
 	h.mu.Lock()
 	if w := h.topics[key]; w != nil {
 		w.queue = append(w.queue, prompt)
 		queued := len(w.queue)
+		busy := w.busy
 		h.mu.Unlock()
-		h.board.set(key, func(s *TopicStatus) { s.Queued = queued })
-		_, _ = h.bot.SendQuiet(chat, thread, h.t("Закончу текущее и возьмусь.", "I'll finish the current one and take it."))
+		select {
+		case w.wake <- struct{}{}:
+		default:
+		}
+		if busy {
+			h.board.set(key, func(s *TopicStatus) { s.Queued = queued })
+			_, _ = h.bot.SendQuiet(chat, thread, h.t("Закончу текущее и возьмусь.", "I'll finish the current one and take it."))
+		}
 		return
 	}
-	w := &topicWork{turn: turn}
+	w := &topicWork{queue: []string{prompt}, wake: make(chan struct{}, 1)}
 	h.topics[key] = w
 	h.mu.Unlock()
-	go func() {
-		for prompt != "" {
-			current, _ := h.state.topic(key)
-			h.runTurn(chat, thread, key, current, w.turn, prompt)
-			h.mu.Lock()
-			prompt = ""
-			if len(w.queue) > 0 {
-				prompt, w.queue = w.queue[0], w.queue[1:]
-				queued := len(w.queue)
-				h.board.set(key, func(s *TopicStatus) { s.Queued = queued })
-			} else {
-				delete(h.topics, key)
+	go h.topicLoop(chat, thread, key, w)
+}
+
+// The topic's own loop: the queued messages one by one, and while there are none, what its engine says by itself
+func (h *Helper) topicLoop(chat, thread int64, key string, w *topicWork) {
+	idle := time.NewTimer(liveIdle)
+	defer idle.Stop()
+	for {
+		kind := h.turnKind()
+		h.mu.Lock()
+		if w.turn == nil || w.kind != kind {
+			if live, ok := w.turn.(LiveTurn); ok {
+				go live.Close()
 			}
 			h.mu.Unlock()
+			turn := h.newTurn()
+			h.mu.Lock()
+			w.turn, w.kind = turn, kind
 		}
-	}()
+		live, isLive := w.turn.(LiveTurn)
+		prompt, background := "", false
+		if isLive && live.Woke() {
+			// what the engine began by itself goes first: the next message must get its own answer
+			background = true
+		} else if len(w.queue) > 0 {
+			prompt, w.queue = w.queue[0], w.queue[1:]
+		}
+		if !background && prompt == "" {
+			if !isLive {
+				delete(h.topics, key)
+				h.mu.Unlock()
+				return
+			}
+			h.mu.Unlock()
+			select {
+			case <-w.wake:
+			case <-live.Wake():
+			case <-idle.C:
+				h.mu.Lock()
+				quiet := len(w.queue) == 0 && !live.Woke()
+				if quiet {
+					delete(h.topics, key)
+				}
+				h.mu.Unlock()
+				if quiet {
+					live.Close()
+					return
+				}
+			}
+			continue
+		}
+		w.busy = true
+		queued := len(w.queue)
+		turn := w.turn
+		h.mu.Unlock()
+		h.board.set(key, func(s *TopicStatus) { s.Queued = queued })
+		current, _ := h.state.topic(key)
+		h.runTurn(chat, thread, key, current, turn, prompt)
+		h.mu.Lock()
+		w.busy = false
+		h.mu.Unlock()
+		if !idle.Stop() {
+			select {
+			case <-idle.C:
+			default:
+			}
+		}
+		idle.Reset(liveIdle)
+	}
+}
+
+// closeTopics ends the topics' living engines, when the helper or its agent stops
+func (h *Helper) closeTopics() {
+	h.mu.Lock()
+	var lives []LiveTurn
+	for _, w := range h.topics {
+		if live, ok := w.turn.(LiveTurn); ok {
+			lives = append(lives, live)
+		}
+	}
+	h.mu.Unlock()
+	for _, live := range lives {
+		live.Close()
+	}
 }
 
 func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn, prompt string) {
