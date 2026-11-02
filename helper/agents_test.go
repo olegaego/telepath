@@ -177,3 +177,18 @@ func TestNewerVersion(t *testing.T) {
 		}
 	}
 }
+
+// Agents with no phone (added on the computer, or the phone was disconnected): a phone connects and joins them
+func TestPhoneJoinsAgentsWithNoPhone(t *testing.T) {
+	p := newPhoneTest(t)
+	cfg, _ := loadConfig()
+	cfg.putAgent(Config{BotToken: "111:x", OwnerID: 42, BotName: "bot111", Engine: "claude"})
+	_ = saveConfig(cfg)
+	if code, out := p.ask("/pair", map[string]any{"bot_token": "111:x", "owner_id": 42, "engine": "claude", "secret": "phone-secret"}); code != 200 || out["bot"] != "bot111" {
+		t.Fatalf("pair: %d %v", code, out)
+	}
+	cfg, _ = loadConfig()
+	if len(cfg.Agents) != 1 || cfg.PhoneSecret != "phone-secret" {
+		t.Fatalf("agents %+v, secret %q", cfg.Agents, cfg.PhoneSecret)
+	}
+}

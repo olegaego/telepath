@@ -206,8 +206,9 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func (n *Network) handlePair(w http.ResponseWriter, r *http.Request) {
-	if cfg, _ := loadConfig(); len(cfg.Agents) > 0 {
-		// already connected: more agents come through /agent/add from the phone that connected it
+	if cfg, _ := loadConfig(); len(cfg.Agents) > 0 && cfg.PhoneSecret != "" {
+		// already connected: more agents come through /agent/add from the phone that connected it. Agents with no
+		// phone (added on the computer, or the phone was disconnected) let a phone connect and join them.
 		http.Error(w, "already connected", http.StatusConflict)
 		return
 	}
