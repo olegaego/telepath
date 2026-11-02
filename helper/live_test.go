@@ -56,6 +56,8 @@ func fakeClaude() {
 		case m.Message.Content == "долго":
 			waiting = true
 			out(map[string]any{"type": "assistant", "message": map[string]any{"content": []any{map[string]any{"type": "tool_use", "name": "Bash", "input": map[string]any{"command": "sleep 100"}}}}})
+		case m.Message.Content == "фото":
+			answer("смотри\n\n[[фото: p.png]]")
 		default:
 			answer("ответ: " + m.Message.Content)
 			if m.Message.Content == "фон" {
@@ -255,5 +257,45 @@ func TestQuietTopicClosesItsEngine(t *testing.T) {
 			t.Fatal("the quiet topic kept its engine")
 		}
 		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// Pictures in an answer go to the topic as a photo before the text
+func TestTopicSendsPhotos(t *testing.T) {
+	fakeLive(t)
+	t.Setenv("HOME", t.TempDir())
+	calls := make(chan string, 16)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls <- r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1}}`))
+	}))
+	t.Cleanup(api.Close)
+	old := botAPI
+	botAPI = api.URL
+	t.Cleanup(func() { botAPI = old })
+	h := &Helper{cfg: Config{BotToken: "1:x", BotName: "test", Engine: "claude"}, bot: NewBot("1:x"), state: loadState("test"), topics: map[string]*topicWork{}, pending: map[string]*pendingChoice{}}
+	h.board, h.drafts = newStatusBoard(), newDraftBudget()
+	t.Cleanup(h.closeTopics)
+	dir := t.TempDir()
+	_ = os.WriteFile(dir+"/p.png", []byte("png"), 0o644)
+	h.state.setTopic(topicKey(1, 2), TopicState{Cwd: dir})
+	h.enqueue(1, 2, TopicState{Cwd: dir}, "фото")
+	deadline := time.After(5 * time.Second)
+	photo := false
+	for {
+		select {
+		case c := <-calls:
+			if c == "sendPhoto" {
+				photo = true
+			}
+			if c == "sendRichMessage" {
+				if !photo {
+					t.Fatal("the text came before the photo")
+				}
+				return
+			}
+		case <-deadline:
+			t.Fatal("no answer")
+		}
 	}
 }

@@ -718,6 +718,27 @@ func (h *Helper) topicLoop(chat, thread int64, key string, w *topicWork) {
 	}
 }
 
+// sendPhotos sends the answer's pictures before its text: one as a photo, several as an album; a picture that could
+// not be made is told in the text
+func (h *Helper) sendPhotos(chat, thread int64, refs []photoRef, text *string) {
+	var names []string
+	var files [][]byte
+	for _, ref := range refs {
+		data, name, err := renderPhoto(ref)
+		if err != nil {
+			log.Printf("фото %s: %v", ref.Path, err)
+			*text += fmt.Sprintf("\n\n"+h.t("(не вышло показать %s)", "(could not show %s)"), filepath.Base(ref.Path))
+			continue
+		}
+		names, files = append(names, name), append(files, data)
+	}
+	if len(files) == 1 {
+		_ = h.bot.SendPhoto(chat, thread, names[0], files[0])
+	} else if len(files) > 1 {
+		_ = h.bot.SendAlbum(chat, thread, names, files)
+	}
+}
+
 // closeTopics ends the topics' living engines, when the helper or its agent stops
 func (h *Helper) closeTopics() {
 	h.mu.Lock()
@@ -851,7 +872,9 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 		_, _ = h.bot.Send(chat, thread, h.t("Ошибка: ", "Error: ")+trim(result.Error, 3500), nil)
 		return
 	}
-	text, options := choices(result.Text)
+	text, refs := takePhotos(result.Text, t.Cwd)
+	text, options := choices(text)
+	h.sendPhotos(chat, thread, refs, &text)
 	h.board.set(key, func(s *TopicStatus) {
 		// a question or choices: the agent waits for the owner; else the topic is idle until the next message
 		s.State, s.Detail, s.Since = "idle", "", time.Now().Unix()

@@ -278,3 +278,36 @@ func (b *Bot) SendPhoto(chat, thread int64, name string, data []byte) error {
 	defer resp.Body.Close()
 	return b.decode("sendPhoto", resp.Body, nil)
 }
+
+// Several photos as one album
+func (b *Bot) SendAlbum(chat, thread int64, names []string, files [][]byte) error {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+	_ = w.WriteField("chat_id", fmt.Sprint(chat))
+	if thread != 0 {
+		_ = w.WriteField("message_thread_id", fmt.Sprint(thread))
+	}
+	var media []map[string]string
+	for i, data := range files {
+		field := fmt.Sprintf("p%d", i)
+		media = append(media, map[string]string{"type": "photo", "media": "attach://" + field})
+		part, err := w.CreateFormFile(field, names[i])
+		if err != nil {
+			return err
+		}
+		if _, err := part.Write(data); err != nil {
+			return err
+		}
+	}
+	list, _ := json.Marshal(media)
+	_ = w.WriteField("media", string(list))
+	if err := w.Close(); err != nil {
+		return err
+	}
+	resp, err := b.client.Post(botAPI+"/bot"+b.token+"/sendMediaGroup", w.FormDataContentType(), &buf)
+	if err != nil {
+		return b.hide(err)
+	}
+	defer resp.Body.Close()
+	return b.decode("sendMediaGroup", resp.Body, nil)
+}
