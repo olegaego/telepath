@@ -36,6 +36,9 @@ public func agentgramStartAgentStatus(context: AccountContext) {
             agentgramPeer(context, username: name)
             |> map { peer -> (String, EnginePeer.Id?) in (name, peer?.id) }
         })
+        // botIds is read on the main queue (the status timer, «Stop»): it is written there too, never from the
+        // queue the peers come on
+        |> deliverOnMainQueue
         |> map { pairs -> [EnginePeer.Id] in
             for (name, id) in pairs {
                 if let id {
