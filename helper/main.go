@@ -156,7 +156,7 @@ func (h *Helper) newTurn() Turn {
 	h.mu.Unlock()
 	switch engine {
 	case "codex":
-		return &CodexTurn{Model: model}
+		return &CodexLiveTurn{Model: model}
 	case "chat":
 		h.mu.Lock()
 		key := h.cfg.ChatKey

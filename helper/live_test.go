@@ -20,6 +20,10 @@ func TestMain(m *testing.M) {
 		fakeClaude()
 		os.Exit(0)
 	}
+	if os.Getenv("FAKE_CODEX") == "1" {
+		fakeCodex()
+		os.Exit(0)
+	}
 	os.Exit(m.Run())
 }
 
