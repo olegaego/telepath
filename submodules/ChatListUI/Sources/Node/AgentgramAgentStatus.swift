@@ -60,9 +60,18 @@ public enum AgentgramAgentStatus {
         }
     }
     // the limits of each engine («Claude Code», «Codex») by window («5h», «week»): a session shows its own engine's
-    public static var limits: [String: [String: Limit]] = [:]
+    // Read from any queue (chat history is built off the main one), written on the main one: kept behind a lock
+    private static let limitsValue = Atomic<[String: [String: Limit]]>(value: [:])
+    public static var limits: [String: [String: Limit]] {
+        get { return limitsValue.with { $0 } }
+        set { let _ = limitsValue.swap(newValue) }
+    }
     // the engine each agent works on now: a topic that has not answered yet shows it
-    public static var engines: [EnginePeer.Id: String] = [:]
+    private static let enginesValue = Atomic<[EnginePeer.Id: String]>(value: [:])
+    public static var engines: [EnginePeer.Id: String] {
+        get { return enginesValue.with { $0 } }
+        set { let _ = enginesValue.swap(newValue) }
+    }
 
     public static func fiveHour(_ engine: String?) -> Limit? {
         return limits[engine ?? "Claude Code"]?["5h"]
@@ -96,12 +105,20 @@ public enum AgentgramAgentStatus {
     // when each topic's draft appeared: the «2 min» counts from it
     private static var draftSince: [String: Int32] = [:]
     private static var fromNearby: [Session] = []
-    public private(set) static var agentBots = Set<EnginePeer.Id>()
+    private static let agentBotsValue = Atomic<Set<EnginePeer.Id>>(value: Set())
+    public private(set) static var agentBots: Set<EnginePeer.Id> {
+        get { return agentBotsValue.with { $0 } }
+        set { let _ = agentBotsValue.swap(newValue) }
+    }
     private static var stopNearby: ((EnginePeer.Id, Int64) -> Bool)?
 
     private static let sessionsPromise = ValuePromise<[Session]>([], ignoreRepeated: false)   // every second: the «8 s» keeps counting
     private static var timer: SwiftSignalKit.Timer?
-    public private(set) static var last: [Session] = []
+    private static let lastValue = Atomic<[Session]>(value: [])
+    public private(set) static var last: [Session] {
+        get { return lastValue.with { $0 } }
+        set { let _ = lastValue.swap(newValue) }
+    }
 
     public static var sessions: Signal<[Session], NoError> {
         return sessionsPromise.get()
@@ -191,13 +208,27 @@ public enum AgentgramAgentStatus {
             typing[key] = (current.session, now)
         } else {
             // «typing»: the session works (the panel with «СТОП»), but the words stay Telegram's own «typing…»
-            typing[key] = (Session(bot: bot, thread: thread, state: "typing", detail: "", since: Int32(Date().timeIntervalSince1970), queued: 0, model: nil), now)
+            let since = Int32(Date().timeIntervalSince1970)
+            // the bot has already answered in that topic: publish() would drop this at once, and the chat that told
+            // us about the typing would tell us again, round and round until the stack ends
+            if fromMessages.contains(where: { $0.bot == bot && $0.thread == thread && $0.since >= since && !$0.working }) {
+                return
+            }
+            typing[key] = (Session(bot: bot, thread: thread, state: "typing", detail: "", since: since, queued: 0, model: nil), now)
             publish()
         }
     }
 
     // the computer nearby knows best; then a topic that types; for the rest, what the bot's messages say
+    private static var publishing = false
+
     private static func publish() {
+        // the subscribers run inside sessionsPromise.set and may ask to publish again: not from inside
+        if publishing {
+            return
+        }
+        publishing = true
+        defer { publishing = false }
         let now = CFAbsoluteTimeGetCurrent()
         typing = typing.filter { now - $0.value.seen < 7.0 }
         // the bot answered in that topic after it started typing: the turn is over, now
