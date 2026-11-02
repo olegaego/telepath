@@ -157,6 +157,11 @@ func (n *Network) Code() string {
 }
 
 // announced with the plain host name and the computer's own addresses (Register would add «.local» twice on a Mac)
+// A computer is taken when a phone is connected to it; agents with no phone wait for one
+func takenByPhone(cfg Config) bool {
+	return len(cfg.Agents) > 0 && cfg.PhoneSecret != ""
+}
+
 func (n *Network) reannounce(cfg Config) {
 	// not listening (a test talking to the handlers directly): nothing to announce
 	if n.port == 0 {
@@ -166,7 +171,7 @@ func (n *Network) reannounce(cfg Config) {
 		n.announce.Shutdown()
 	}
 	txt := []string{"v=1", "pk=" + base64.RawURLEncoding.EncodeToString(n.key.PublicKey().Bytes())}
-	if len(cfg.Agents) > 0 {
+	if takenByPhone(cfg) {
 		bots := []string{}
 		for _, a := range cfg.Agents {
 			bots = append(bots, a.BotName)
@@ -206,7 +211,7 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func (n *Network) handlePair(w http.ResponseWriter, r *http.Request) {
-	if cfg, _ := loadConfig(); len(cfg.Agents) > 0 && cfg.PhoneSecret != "" {
+	if cfg, _ := loadConfig(); takenByPhone(cfg) {
 		// already connected: more agents come through /agent/add from the phone that connected it. Agents with no
 		// phone (added on the computer, or the phone was disconnected) let a phone connect and join them.
 		http.Error(w, "already connected", http.StatusConflict)

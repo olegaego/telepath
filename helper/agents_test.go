@@ -184,11 +184,14 @@ func TestPhoneJoinsAgentsWithNoPhone(t *testing.T) {
 	cfg, _ := loadConfig()
 	cfg.putAgent(Config{BotToken: "111:x", OwnerID: 42, BotName: "bot111", Engine: "claude"})
 	_ = saveConfig(cfg)
+	if takenByPhone(cfg) {
+		t.Fatal("agents with no phone must not look taken on the network")
+	}
 	if code, out := p.ask("/pair", map[string]any{"bot_token": "111:x", "owner_id": 42, "engine": "claude", "secret": "phone-secret"}); code != 200 || out["bot"] != "bot111" {
 		t.Fatalf("pair: %d %v", code, out)
 	}
 	cfg, _ = loadConfig()
-	if len(cfg.Agents) != 1 || cfg.PhoneSecret != "phone-secret" {
+	if len(cfg.Agents) != 1 || cfg.PhoneSecret != "phone-secret" || !takenByPhone(cfg) {
 		t.Fatalf("agents %+v, secret %q", cfg.Agents, cfg.PhoneSecret)
 	}
 }
