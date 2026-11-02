@@ -18,3 +18,5 @@ func setAutostart(on bool) error { return nil }
 func openURL(url string) {
 	_ = exec.Command("xdg-open", url).Start()
 }
+
+func bonjourHost() string { return computerName() }

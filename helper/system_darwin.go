@@ -89,3 +89,15 @@ func setAutostart(on bool) error {
 	}
 	return os.WriteFile(launchAgentPath(), []byte(plist), 0o644)
 }
+
+// The name the Mac itself answers to on the local network (System Settings → Sharing → Local hostname). The host
+// name (os.Hostname) can be another one — «Mac» from the router — that nobody answers for, and a phone that found
+// the helper then never reaches it
+func bonjourHost() string {
+	if out, err := exec.Command("scutil", "--get", "LocalHostName").Output(); err == nil {
+		if name := strings.TrimSpace(string(out)); name != "" {
+			return name
+		}
+	}
+	return computerName()
+}

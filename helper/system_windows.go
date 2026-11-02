@@ -58,3 +58,5 @@ func setAutostart(on bool) error {
 	}
 	return exec.Command("reg", "add", runKey, "/v", "Telepath", "/t", "REG_SZ", "/d", `"`+executablePath()+`"`, "/f").Run()
 }
+
+func bonjourHost() string { return computerName() }

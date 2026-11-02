@@ -173,7 +173,7 @@ func (n *Network) reannounce(cfg Config) {
 		}
 		txt = append(txt, "paired=1", "bot="+cfg.BotName, "engine="+cfg.Engine, "bots="+strings.Join(bots, ","))
 	}
-	announce, err := zeroconf.RegisterProxy(computerName(), pairService, "local.", n.port, computerName(), localAddresses(), txt, nil)
+	announce, err := zeroconf.RegisterProxy(computerName(), pairService, "local.", n.port, bonjourHost(), localAddresses(), txt, nil)
 	if err != nil {
 		log.Println("сеть:", err)
 		return
