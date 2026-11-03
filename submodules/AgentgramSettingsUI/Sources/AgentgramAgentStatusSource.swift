@@ -109,8 +109,9 @@ private func sessions(from result: [String: Any]?, bot defaultBot: EnginePeer.Id
     if let limits = result["limits"] as? [String: Any] {
         for (engine, name) in agentgramEngines {
             var windows: [String: AgentgramAgentStatus.Limit] = [:]
+            let time = ((limits[engine] as? [String: Any])?["time"] as? NSNumber)?.int32Value
             for window in engineLimits(["limits": limits], engine: engine) {
-                windows[window.name] = AgentgramAgentStatus.Limit(pct: Int(window.percent.rounded()), resetsAt: window.resetsAt == 0 ? nil : Int32(window.resetsAt))
+                windows[window.name] = AgentgramAgentStatus.Limit(pct: Int(window.percent.rounded()), resetsAt: window.resetsAt == 0 ? nil : Int32(window.resetsAt), updatedAt: time == 0 ? nil : time)
             }
             AgentgramAgentStatus.limits[name] = windows
         }

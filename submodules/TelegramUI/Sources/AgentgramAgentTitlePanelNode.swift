@@ -119,7 +119,12 @@ final class AgentgramAgentTitlePanelNode: ChatTitleAccessoryPanelNode {
         self.lineNode.backgroundColor = accent
         self.stopBackgroundNode.backgroundColor = full ? agentgramContextFullColor : theme.list.itemCheckColors.fillColor
         let now = Int32(Date().timeIntervalSince1970)
-        let what = AgentgramAgentStatus.stepText(state: session.state, detail: "", russian: self.russian)
+        var what = AgentgramAgentStatus.stepText(state: session.state, detail: "", russian: self.russian)
+        if session.background {
+            // the agent began the turn by itself
+            let label = self.russian ? "в фоне" : "in the background"
+            what = session.detail == AgentgramAgentStatus.backgroundStep ? label : label + ", " + what
+        }
         self.titleNode.attributedText = NSAttributedString(string: "\(what) · \(AgentgramAgentStatus.elapsed(Int(max(0, now - session.since)), russian: self.russian))", font: Font.semibold(14.0), textColor: accent)
 
         var detail = session.detail
@@ -511,6 +516,19 @@ private struct AgentgramAgentSheetBuilder {
             wrap.isLayoutMarginsRelativeArrangement = true
             wrap.layoutMargins = UIEdgeInsets(top: 10.0, left: 0.0, bottom: 0.0, right: 0.0)
             result.append(wrap)
+            // away from home the limits are the last ones heard at home: say how old they are
+            let updated = [AgentgramAgentStatus.fiveHour(engineName), AgentgramAgentStatus.week(engineName), AgentgramAgentStatus.month(engineName)].compactMap { $0?.updatedAt }.max()
+            if let updated {
+                let minutes = Int(max(0, Int32(Date().timeIntervalSince1970) - updated)) / 60
+                if minutes >= 5 {
+                    let age = minutes < 60 ? (self.russian ? "\(minutes) мин" : "\(minutes) min") : (self.russian ? "\(minutes / 60) ч" : "\(minutes / 60) h")
+                    let note = self.label(self.russian ? "лимиты обновлены \(age) назад" : "limits updated \(age) ago", size: 12.0, weight: .regular, color: self.theme.list.itemSecondaryTextColor, center: true)
+                    let noteWrap = UIStackView(arrangedSubviews: [note])
+                    noteWrap.isLayoutMarginsRelativeArrangement = true
+                    noteWrap.layoutMargins = UIEdgeInsets(top: 6.0, left: 16.0, bottom: 0.0, right: 16.0)
+                    result.append(noteWrap)
+                }
+            }
         }
 
         var rows: [(String, String, String, Bool)] = (session?.steps ?? []).map { ($0.state, $0.detail, $0.secs > 0 ? AgentgramAgentStatus.elapsed($0.secs, russian: self.russian) : "", false) }

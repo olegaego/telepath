@@ -35,6 +35,11 @@ public enum AgentgramAgentStatus {
         public var working: Bool {
             return state != "waiting_you" && state != "error" && state != "idle"
         }
+
+        // the agent began this turn by itself (a background job finished): the helper's first step says so
+        public var background: Bool {
+            return working && (detail == AgentgramAgentStatus.backgroundStep || steps.first?.detail == AgentgramAgentStatus.backgroundStep)
+        }
     }
 
     public struct Step: Equatable {
@@ -53,10 +58,13 @@ public enum AgentgramAgentStatus {
     public struct Limit: Equatable {
         public var pct: Int
         public var resetsAt: Int32?
+        // when the helper learned it: away from home the numbers are the last ones heard at home
+        public var updatedAt: Int32?
 
-        public init(pct: Int, resetsAt: Int32?) {
+        public init(pct: Int, resetsAt: Int32?, updatedAt: Int32? = nil) {
             self.pct = pct
             self.resetsAt = resetsAt
+            self.updatedAt = updatedAt
         }
     }
     // the limits of each engine («Claude Code», «Codex») by window («5h», «week»): a session shows its own engine's
@@ -407,8 +415,11 @@ public enum AgentgramAgentStatus {
     }
 
     // «запускает команду · 8 мин»
+    // the helper's step for a turn the agent began by itself
+    public static let backgroundStep = "Работаю в фоне"
+
     public static func text(_ session: Session, russian: Bool) -> String {
-        let what: String
+        var what: String
         switch session.state {
         case "thinking":
             what = russian ? "думает" : "thinking"
@@ -441,6 +452,11 @@ public enum AgentgramAgentStatus {
             return session.detail.isEmpty ? (russian ? "ошибка" : "error") : session.detail
         default:
             what = session.state
+        }
+        // «в фоне», then what it does now: «в фоне, запускает команду»
+        if session.background {
+            let label = russian ? "в фоне" : "in the background"
+            what = session.detail == backgroundStep || what.isEmpty ? label : label + ", " + what
         }
         let seconds = max(0, Int32(Date().timeIntervalSince1970) - session.since)
         let elapsed: String

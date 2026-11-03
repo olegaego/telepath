@@ -92,7 +92,9 @@ private enum ComputerEntry: ItemListNodeEntry {
         let arguments = arguments as! ComputerArguments
         switch self {
         case let .status(name, text, nearby, peer):
-            return AgentgramComputerHeaderItem(theme: presentationData.theme, iconColor: UIColor(rgb: 0x5856D6), iconSize: 100.0, title: name, status: text, statusColor: nearby ? UIColor(rgb: 0x34C759) : UIColor(rgb: 0xFF3B30), context: arguments.context, peer: peer, sectionId: self.section)
+            // not nearby is orange, not red: the agent still answers through Telegram, the computer is just on
+            // another network
+            return AgentgramComputerHeaderItem(theme: presentationData.theme, iconColor: UIColor(rgb: 0x5856D6), iconSize: 100.0, title: name, status: text, statusColor: nearby ? UIColor(rgb: 0x34C759) : UIColor(rgb: 0xFF9500), context: arguments.context, peer: peer, sectionId: self.section)
         case let .counters(counters):
             return AgentgramCountersItem(presentationData: presentationData, counters: counters, sectionId: self.section)
         case let .noTopics(title, text):
