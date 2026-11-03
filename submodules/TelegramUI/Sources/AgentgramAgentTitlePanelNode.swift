@@ -19,6 +19,9 @@ import EmojiStatusComponent
 // Agentgram: while an agent's session works, a panel stands under the title where the pinned message is: what it
 // does, the command, the context and the 5-hour limit, «стоп». A tap opens the sheet with the steps and the limits.
 // When the turn ends the panel goes and the pinned message (if any) comes back.
+// the work panel and the sheet's context tile when the context is 70% full and more
+private let agentgramContextFullColor = UIColor(rgb: 0xFF9500)
+
 final class AgentgramAgentTitlePanelNode: ChatTitleAccessoryPanelNode {
     let context: AccountContext
     let bot: EnginePeer.Id
@@ -109,8 +112,12 @@ final class AgentgramAgentTitlePanelNode: ChatTitleAccessoryPanelNode {
         guard let theme = self.theme, let session = AgentgramAgentStatus.session(bot: self.bot, thread: self.thread) else {
             return
         }
-        let accent = theme.rootController.navigationBar.accentTextColor
+        // the context 70% full and more: the panel is orange, as every turn now costs much of the limit
+        let full = AgentgramAgentStatus.contextIsFull(session.context)
+        let accent = full ? agentgramContextFullColor : theme.rootController.navigationBar.accentTextColor
         let secondary = theme.rootController.navigationBar.secondaryTextColor
+        self.lineNode.backgroundColor = accent
+        self.stopBackgroundNode.backgroundColor = full ? agentgramContextFullColor : theme.list.itemCheckColors.fillColor
         let now = Int32(Date().timeIntervalSince1970)
         let what = AgentgramAgentStatus.stepText(state: session.state, detail: "", russian: self.russian)
         self.titleNode.attributedText = NSAttributedString(string: "\(what) · \(AgentgramAgentStatus.elapsed(Int(max(0, now - session.since)), russian: self.russian))", font: Font.semibold(14.0), textColor: accent)
@@ -122,8 +129,13 @@ final class AgentgramAgentTitlePanelNode: ChatTitleAccessoryPanelNode {
         self.detailNode.attributedText = NSAttributedString(string: detail, font: Font.regular(14.0), textColor: theme.rootController.navigationBar.primaryTextColor)
 
         var meter: [String] = []
+        var contextRange: NSRange?
         if let context = session.context {
-            meter.append(self.russian ? "контекст \(context.used * 100 / context.max)%" : "context \(context.used * 100 / context.max)%")
+            let text = self.russian ? "контекст \(context.used * 100 / context.max)%" : "context \(context.used * 100 / context.max)%"
+            if full {
+                contextRange = NSRange(location: 0, length: (text as NSString).length)
+            }
+            meter.append(text)
         }
         let engineName = session.model ?? AgentgramAgentStatus.engines[self.bot]
         if let fiveHour = AgentgramAgentStatus.fiveHour(engineName) {
@@ -134,7 +146,11 @@ final class AgentgramAgentTitlePanelNode: ChatTitleAccessoryPanelNode {
         if session.queued > 0 {
             meter.append(self.russian ? "в очереди \(session.queued)" : "\(session.queued) queued")
         }
-        self.meterNode.attributedText = NSAttributedString(string: meter.joined(separator: "  ·  "), font: Font.regular(12.0), textColor: secondary)
+        let meterText = NSMutableAttributedString(attributedString: NSAttributedString(string: meter.joined(separator: "  ·  "), font: Font.regular(12.0), textColor: secondary))
+        if let contextRange {
+            meterText.addAttributes([.foregroundColor: agentgramContextFullColor, .font: Font.semibold(12.0)], range: contextRange)
+        }
+        self.meterNode.attributedText = meterText
 
         if let (width, leftInset, rightInset) = self.lastWidth {
             self.layoutTexts(width: width, leftInset: leftInset, rightInset: rightInset)
@@ -242,6 +258,7 @@ private final class AgentgramAgentSheetContent: CombinedComponent {
     static var body: Body {
         let card = Child(AgentgramAgentSheetCard.self)
         let stopButton = Child(ButtonComponent.self)
+        let compactButton = Child(ButtonComponent.self)
 
         return { context in
             let environment = context.environment[EnvironmentType.self]
@@ -259,35 +276,73 @@ private final class AgentgramAgentSheetContent: CombinedComponent {
             )
             contentHeight += card.size.height + 16.0
 
-            // «СТОП» only from the work panel, and only while the turn goes
+            // «СТОП» only from the work panel, and only while the turn goes; «Сжать сессию» whenever the context is known
             let buttonInsets = ContainerViewLayout.concentricInsets(bottomInset: environment.safeInsets.bottom, innerDiameter: 52.0, sideInset: 30.0)
-            if !component.showsStop || !(AgentgramAgentStatus.session(bot: component.bot, thread: component.thread)?.working ?? false) {
+            let session = AgentgramAgentStatus.session(bot: component.bot, thread: component.thread)
+            let showsStop = component.showsStop && (session?.working ?? false)
+            let showsCompact = session?.context != nil && session?.detail != "Сжимаю сессию"
+            if !showsStop && !showsCompact {
                 return CGSize(width: context.availableSize.width, height: contentHeight + buttonInsets.bottom)
             }
-            let stopTitle = NSAttributedString(string: component.russian ? "СТОП" : "STOP", font: Font.semibold(17.0), textColor: theme.list.itemCheckColors.foregroundColor, paragraphAlignment: .center)
-            let stopButton = stopButton.update(
-                component: ButtonComponent(
-                    background: ButtonComponent.Background(
-                        style: .glass,
-                        color: theme.list.itemCheckColors.fillColor,
-                        foreground: theme.list.itemCheckColors.foregroundColor,
-                        pressedColor: theme.list.itemCheckColors.fillColor.withMultipliedAlpha(0.9)
+            if showsStop {
+                let stopTitle = NSAttributedString(string: component.russian ? "СТОП" : "STOP", font: Font.semibold(17.0), textColor: theme.list.itemCheckColors.foregroundColor, paragraphAlignment: .center)
+                let stopButton = stopButton.update(
+                    component: ButtonComponent(
+                        background: ButtonComponent.Background(
+                            style: .glass,
+                            color: theme.list.itemCheckColors.fillColor,
+                            foreground: theme.list.itemCheckColors.foregroundColor,
+                            pressedColor: theme.list.itemCheckColors.fillColor.withMultipliedAlpha(0.9)
+                        ),
+                        content: AnyComponentWithIdentity(id: AnyHashable(0), component: AnyComponent(MultilineTextComponent(text: .plain(stopTitle)))),
+                        isEnabled: true,
+                        displaysProgress: false,
+                        action: {
+                            AgentgramAgentStatus.stop(bot: component.bot, thread: component.thread)
+                            component.dismiss()
+                        }
                     ),
-                    content: AnyComponentWithIdentity(id: AnyHashable(0), component: AnyComponent(MultilineTextComponent(text: .plain(stopTitle)))),
-                    isEnabled: true,
-                    displaysProgress: false,
-                    action: {
-                        AgentgramAgentStatus.stop(bot: component.bot, thread: component.thread)
-                        component.dismiss()
-                    }
-                ),
-                availableSize: CGSize(width: context.availableSize.width - buttonInsets.left - buttonInsets.right, height: 52.0),
-                transition: context.transition
-            )
-            context.add(stopButton
-                .position(CGPoint(x: context.availableSize.width / 2.0, y: contentHeight + stopButton.size.height / 2.0))
-            )
-            contentHeight += stopButton.size.height + buttonInsets.bottom
+                    availableSize: CGSize(width: context.availableSize.width - buttonInsets.left - buttonInsets.right, height: 52.0),
+                    transition: context.transition
+                )
+                context.add(stopButton
+                    .position(CGPoint(x: context.availableSize.width / 2.0, y: contentHeight + stopButton.size.height / 2.0))
+                )
+                contentHeight += stopButton.size.height
+            }
+            if showsCompact {
+                if showsStop {
+                    contentHeight += 10.0
+                }
+                // orange when the context is 70% full and more, as the panel
+                let full = AgentgramAgentStatus.contextIsFull(session?.context)
+                let fill = full ? agentgramContextFullColor : theme.list.itemCheckColors.fillColor
+                let compactTitle = NSAttributedString(string: component.russian ? "Сжать сессию" : "Compact session", font: Font.semibold(17.0), textColor: theme.list.itemCheckColors.foregroundColor, paragraphAlignment: .center)
+                let compactButton = compactButton.update(
+                    component: ButtonComponent(
+                        background: ButtonComponent.Background(
+                            style: .glass,
+                            color: fill,
+                            foreground: theme.list.itemCheckColors.foregroundColor,
+                            pressedColor: fill.withMultipliedAlpha(0.9)
+                        ),
+                        content: AnyComponentWithIdentity(id: AnyHashable(1), component: AnyComponent(MultilineTextComponent(text: .plain(compactTitle)))),
+                        isEnabled: true,
+                        displaysProgress: false,
+                        action: {
+                            AgentgramAgentStatus.compact(bot: component.bot, thread: component.thread)
+                            component.dismiss()
+                        }
+                    ),
+                    availableSize: CGSize(width: context.availableSize.width - buttonInsets.left - buttonInsets.right, height: 52.0),
+                    transition: context.transition
+                )
+                context.add(compactButton
+                    .position(CGPoint(x: context.availableSize.width / 2.0, y: contentHeight + compactButton.size.height / 2.0))
+                )
+                contentHeight += compactButton.size.height
+            }
+            contentHeight += buttonInsets.bottom
 
             return CGSize(width: context.availableSize.width, height: contentHeight)
         }
@@ -434,7 +489,7 @@ private struct AgentgramAgentSheetBuilder {
         var tiles: [UIView] = []
         if let context = session?.context {
             let total = context.max >= 1000000 ? "\(context.max / 1000000)M" : "\(context.max / 1000)k"
-            tiles.append(self.tile(self.russian ? "контекст" : "context", "\(context.used * 100 / context.max)%", "\(context.used / 1000)k " + (self.russian ? "из " : "of ") + total))
+            tiles.append(self.tile(self.russian ? "контекст" : "context", "\(context.used * 100 / context.max)%", "\(context.used / 1000)k " + (self.russian ? "из " : "of ") + total, full: AgentgramAgentStatus.contextIsFull(context)))
         }
         // the limits of this session's engine, named, so Claude Code's are not taken for Codex's
         let engineName = session?.model ?? AgentgramAgentStatus.engines[self.bot] ?? "Claude Code"
@@ -509,14 +564,14 @@ private struct AgentgramAgentSheetBuilder {
         return (self.russian ? "сброс " : "resets ") + formatter.string(from: date)
     }
 
-    private func tile(_ title: String, _ value: String, _ caption: String) -> UIView {
+    private func tile(_ title: String, _ value: String, _ caption: String, full: Bool = false) -> UIView {
         let list = self.theme.list
         let captionLabel = self.label(caption, size: 11.5, weight: .regular, color: list.itemSecondaryTextColor, center: false)
         captionLabel.adjustsFontSizeToFitWidth = true
         captionLabel.minimumScaleFactor = 0.8
         let stack = UIStackView(arrangedSubviews: [
             self.label(title, size: 12.0, weight: .regular, color: list.itemSecondaryTextColor, center: false),
-            self.label(value, size: 22.0, weight: .bold, color: list.itemPrimaryTextColor, center: false),
+            self.label(value, size: 22.0, weight: .bold, color: full ? agentgramContextFullColor : list.itemPrimaryTextColor, center: false),
             captionLabel
         ])
         stack.axis = .vertical
@@ -526,6 +581,10 @@ private struct AgentgramAgentSheetBuilder {
         stack.backgroundColor = list.itemBlocksBackgroundColor
         stack.layer.cornerRadius = 22.0
         stack.layer.cornerCurve = .continuous
+        if full {
+            stack.layer.borderWidth = 2.0
+            stack.layer.borderColor = agentgramContextFullColor.cgColor
+        }
         return stack
     }
 

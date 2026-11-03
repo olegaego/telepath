@@ -156,8 +156,12 @@ func chatHistoryEntriesForView(
             continue
         }
         // Agentgram: the helper's draft in an agent's topic is shown as the work panel, not as a message
-        if AgentgramAgentStatus.isDraft(EngineMessage(message)) {
+        if AgentgramAgentStatus.isDraft(EngineMessage(message)) || AgentgramAgentStatus.isHelperCommand(EngineMessage(message)) {
             continue
+        }
+        // Agentgram: «Сессия сжата: 720k → 38k» from the helper is a service line in the topic
+        if AgentgramAgentStatus.isCompactedNote(EngineMessage(message)) {
+            message = message.withUpdatedMedia([TelegramMediaAction(action: .customText(text: message.text, entities: [], additionalAttributes: nil))]).withUpdatedText("")
         }
         
         if case let .replyThread(replyThreadMessage) = location, replyThreadMessage.isForumPost {

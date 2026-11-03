@@ -5,6 +5,10 @@ internal import TelegramApi
 import MtProtoKit
 
 
+// Agentgram: told when the owner unpins a message (its thread and id) or every pin of a thread (id nil), so an
+// agent's helper, which Telegram does not tell about unpins, learns it
+public var agentgramPinsCleared: ((_ peerId: PeerId, _ threadId: Int64?, _ messageId: MessageId?) -> Void)?
+
 public enum UpdatePinnedMessageError {
     case generic
 }
@@ -72,6 +76,12 @@ func _internal_requestUpdatePinnedMessage(account: Account, peerId: PeerId, upda
         |> mapToSignal { updates -> Signal<Void, UpdatePinnedMessageError> in
             account.stateManager.addUpdates(updates)
             return account.postbox.transaction { transaction in
+                if case let .clear(id) = update, let cleared = agentgramPinsCleared {
+                    let threadId = transaction.getMessage(id)?.threadId
+                    Queue.mainQueue().async {
+                        cleared(peerId, threadId, id)
+                    }
+                }
                 switch updates {
                 case let .updates(updatesData):
                     let updates = updatesData.updates
@@ -192,6 +202,11 @@ func _internal_requestUnpinAllMessages(account: Account, peerId: PeerId, threadI
         }, delayIncrement: 0.0, maxDelay: 0.0, maxRetries: 100, onQueue: .concurrentDefaultQueue())
         |> mapToSignal { _ -> Signal<Never, InternalError> in
             let signal: Signal<Never, InternalError> = account.postbox.transaction { transaction -> Void in
+                if let cleared = agentgramPinsCleared {
+                    Queue.mainQueue().async {
+                        cleared(peerId, threadId, nil)
+                    }
+                }
                 for index in transaction.getMessageIndicesWithTag(peerId: peerId, threadId: nil, namespace: Namespaces.Message.Cloud, tag: .pinned) {
                     transaction.updateMessage(index.id, update: { currentMessage in
                         var storeForwardInfo: StoreMessageForwardInfo?

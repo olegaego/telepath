@@ -3178,6 +3178,11 @@ extension ChatControllerImpl {
                                 contextController.dismiss(completion: {
                                     pinAction(true, true)
                                 })
+                            } else if AgentgramAgentStatus.isAgent(peer.id) {
+                                // Agentgram: an agent's pin is for both, so its helper sees it and the agent knows it
+                                contextController.dismiss(completion: {
+                                    pinAction(false, false)
+                                })
                             } else {
                                 var contextItems: [ContextMenuItem] = []
                                 contextItems.append(.action(ContextMenuActionItem(text: strongSelf.presentationData.strings.Conversation_PinMessagesFor(EnginePeer(peer).compactDisplayTitle).string, textColor: .primary, icon: { _ in nil }, action: { c, _ in

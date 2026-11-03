@@ -132,6 +132,13 @@ public enum AgentgramAgentStatus {
     public static func configure(account: Account, bots: Signal<[EnginePeer.Id], NoError>, nearby: Signal<[Session], NoError>, stopNearby: @escaping (EnginePeer.Id, Int64) -> Bool) {
         self.account = account
         self.stopNearby = stopNearby
+        // Telegram tells a bot about pins but not about unpins: the owner's unpin in an agent's topic goes to its helper
+        agentgramPinsCleared = { peerId, threadId, messageId in
+            guard agentBots.contains(peerId) else {
+                return
+            }
+            send(messageId.flatMap { "/unpin \($0.id)" } ?? "/unpin", bot: peerId, thread: threadId ?? 0)
+        }
         botsDisposable?.dispose()
         botsDisposable = (bots
         |> distinctUntilChanged
@@ -327,6 +334,44 @@ public enum AgentgramAgentStatus {
             return false
         }
         return parseSteps(message.text) != nil
+    }
+
+    // the helper's «Сессия сжата: 720k → 38k»: shown in the topic as a service line, not as the agent's message
+    public static func isCompactedNote(_ message: EngineMessage) -> Bool {
+        guard let author = message.author?.id, agentBots.contains(author), message.media.isEmpty else {
+            return false
+        }
+        return message.text.hasPrefix("Сессия сжата") || message.text.hasPrefix("Session compacted")
+    }
+
+    // the owner's «/compact» and «/unpin» in an agent's chat are for its helper, not shown: the compaction has its
+    // service line, the unpin its own one from Telegram
+    public static func isHelperCommand(_ message: EngineMessage) -> Bool {
+        guard agentBots.contains(message.id.peerId), message.author?.id != message.id.peerId else {
+            return false
+        }
+        return message.text == "/compact" || message.text == "/unpin" || message.text.hasPrefix("/unpin ")
+    }
+
+    // the context is this full, the work panel and the sheet turn orange: every turn costs much of the limit
+    public static func contextIsFull(_ context: (used: Int, max: Int)?) -> Bool {
+        guard let context, context.max > 0 else {
+            return false
+        }
+        return context.used * 100 / context.max >= 70
+    }
+
+    // compacts the session (the «Сжать сессию» of the sheet): /compact in the topic, as the owner would type it
+    public static func compact(bot: EnginePeer.Id, thread: Int64) {
+        send("/compact", bot: bot, thread: thread)
+    }
+
+    // a command for the helper, in the topic, as the owner would type it
+    private static func send(_ text: String, bot: EnginePeer.Id, thread: Int64) {
+        guard let account else {
+            return
+        }
+        let _ = enqueueMessages(account: account, peerId: bot, messages: [.message(text: text, attributes: [], inlineStickers: [:], mediaReference: nil, threadId: thread == 0 ? nil : thread, replyToMessageId: nil, replyToStoryId: nil, localGroupingKey: nil, correlationId: nil, bubbleUpEmojiOrStickersets: [])]).start()
     }
 
     public static func session(bot: EnginePeer.Id, thread: Int64) -> Session? {
