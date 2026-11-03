@@ -272,6 +272,10 @@ public final class TelegramRootController: NavigationController, TelegramRootCon
         agentgramStartAgentStatus(context: self.context)
         // Agentgram: chat bots answer from this phone while the app is open
         agentgramStartChatBots(context: self.context)
+        // Agentgram: a newer Telepath in the App Store is offered once
+        agentgramOfferUpdate(context: self.context, present: { [weak self] controller in
+            self?.rootTabController?.present(controller, in: .window(.root))
+        })
         
         let accountSettingsController = PeerInfoScreenImpl(context: self.context, updatedPresentationData: nil, peerId: self.context.account.peerId, avatarInitiallyExpanded: false, isOpenedFromChat: false, reactionSourceMessageId: nil, callMessages: [], isSettings: true)
         accountSettingsController.tabBarItemDebugTapAction = { [weak self] in

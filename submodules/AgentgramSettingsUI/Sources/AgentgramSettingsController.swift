@@ -36,6 +36,12 @@ private struct AgentgramTexts {
     var nearbyNow: String { ru ? "рядом" : "nearby" }
     var connect: String { ru ? "Подключить" : "Connect" }
     var create: String { ru ? "создать" : "create" }
+    var telepathHeader: String { "TELEPATH" }
+    var channel: String { ru ? "Канал @\(agentgramChannel)" : "Channel @\(agentgramChannel)" }
+    var channelDetail: String { ru ? "новости и обновления" : "news and updates" }
+    var subscribe: String { ru ? "Подписаться" : "Subscribe" }
+    var checkUpdates: String { ru ? "Проверить наличие обновлений" : "Check for Updates" }
+    var channelFooter: String { ru ? "Подпишитесь на канал, чтобы следить за новостями." : "Subscribe to the channel to follow the news." }
     var agentsFooter: String { ru ? "Агент это твой бот, который работает на твоём компьютере. Пишешь боту, отвечает Claude Code или Codex." : "An agent is your bot working on your computer. You write to the bot, Claude Code or Codex answers." }
     var sessionsUnderBot: String { ru ? "Сессии под ботом" : "Sessions Under the Bot" }
     var stockTopics: String { ru ? "Обычные темы Telegram" : "Telegram's Own Topics" }
@@ -69,6 +75,8 @@ private let chatsIcon = icon("Item List/Icons/Chat", 0x2AABEE)
 private let contactsIcon = icon("Item List/Icons/Profile", 0x8E8E93)
 private let callsIcon = icon("Item List/Icons/Phone", 0x34C759)
 private let settingsIcon = icon("Item List/Icons/Settings", 0x8E8E93)
+private let channelIcon = agentgramSymbolTile("megaphone.fill", 0x2AABEE)
+private let updatesIcon = agentgramSymbolTile("arrow.triangle.2.circlepath", 0x8E8E93)
 
 // The app icon for the settings row, 30×30 like the other settings icons
 public let agentgramSettingsIcon: UIImage? = {
@@ -94,6 +102,8 @@ private final class MainArguments {
     var openStatuses: () -> Void = {}
     var setVoice: (Bool) -> Void = { _ in }
     var openVoice: () -> Void = {}
+    var openChannel: () -> Void = {}
+    var checkUpdates: () -> Void = {}
     let context: AccountContext
 
     init(context: AccountContext, openTopicsView: @escaping () -> Void, openTabs: @escaping () -> Void, openSuperfolder: @escaping () -> Void, openComputers: @escaping () -> Void, openAgent: @escaping (ConnectedComputer) -> Void) {
@@ -120,6 +130,11 @@ private enum MainEntry: ItemListNodeEntry {
     case chatBot(Int32, String, EnginePeer?, String)
     case addAgent(String)
     case agentsFooter(String)
+    case telepathHeader(String)
+    case channel(String, String, EnginePeer?, String)
+    case checkUpdates(String)
+    case telepathFooter(String)
+    case version(String)
 
     var section: ItemListSectionId {
         switch self {
@@ -127,6 +142,10 @@ private enum MainEntry: ItemListNodeEntry {
             return 0
         case .agentsHeader, .agent, .chatBot, .addAgent, .agentsFooter:
             return 1
+        case .telepathHeader, .channel, .checkUpdates, .telepathFooter:
+            return 2
+        case .version:
+            return 3
         }
     }
 
@@ -144,6 +163,11 @@ private enum MainEntry: ItemListNodeEntry {
         case let .chatBot(index, _, _, _): return 500 + index
         case .addAgent: return 900
         case .agentsFooter: return 901
+        case .telepathHeader: return 1000
+        case .channel: return 1001
+        case .checkUpdates: return 1002
+        case .telepathFooter: return 1003
+        case .version: return 1100
         }
     }
 
@@ -196,8 +220,20 @@ private enum MainEntry: ItemListNodeEntry {
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: addComputerIcon, title: title, titleColor: .accent, label: "", sectionId: self.section, style: .blocks, action: {
                 arguments.openComputers()
             })
-        case let .agentsFooter(text):
+        case let .agentsFooter(text), let .telepathFooter(text):
             return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section)
+        case let .telepathHeader(text):
+            return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
+        case let .channel(title, detail, peer, label):
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: peer == nil ? channelIcon : nil, context: arguments.context, iconPeer: peer, title: title, label: label, labelStyle: .coloredText(presentationData.theme.list.itemAccentColor), additionalDetailLabel: detail, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: {
+                arguments.openChannel()
+            })
+        case let .checkUpdates(title):
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: updatesIcon, title: title, label: "", sectionId: self.section, style: .blocks, disclosureStyle: .none, action: {
+                arguments.checkUpdates()
+            })
+        case let .version(text):
+            return ItemListTextItem(presentationData: presentationData, text: .plain(text), sectionId: self.section, textAlignment: .center)
         }
     }
 }
@@ -209,10 +245,7 @@ public func agentgramSettingsController(context: AccountContext) -> ViewControll
     let browser = agentgramBrowser
     let agentPeers: Signal<[String: EnginePeer], NoError> = combineLatest(ConnectedComputers.changed.get(), AgentgramChatBots.changed.get())
     |> mapToSignal { _, _ -> Signal<[String: EnginePeer], NoError> in
-        let bots = ConnectedComputers.all(context).map { $0.bot } + AgentgramChatBots.all(context).map { $0.bot }
-        if bots.isEmpty {
-            return .single([:])
-        }
+        let bots = ConnectedComputers.all(context).map { $0.bot } + AgentgramChatBots.all(context).map { $0.bot } + [agentgramChannel]
         return combineLatest(bots.map { bot in
             agentgramPeer(context, username: bot)
             |> map { peer -> (String, EnginePeer?) in (bot, peer) }
@@ -242,6 +275,14 @@ public func agentgramSettingsController(context: AccountContext) -> ViewControll
     }
     arguments.openStatuses = {
         pushImpl?(agentgramStatusesController(context: context))
+    }
+    var navigationImpl: (() -> NavigationController?)?
+    arguments.openChannel = {
+        let presentationData = context.sharedContext.currentPresentationData.with { $0 }
+        context.sharedContext.openExternalUrl(context: context, urlContext: .generic, url: "https://t.me/\(agentgramChannel)", forceExternal: false, presentationData: presentationData, navigationController: navigationImpl?(), dismissInput: {})
+    }
+    arguments.checkUpdates = {
+        agentgramCheckForUpdates(context: context, present: { presentImpl?($0) })
     }
     // recognition is one for all agents: on, off and the method go to every connected computer nearby
     let voiceFailed = {
@@ -338,6 +379,12 @@ public func agentgramSettingsController(context: AccountContext) -> ViewControll
         }
         entries.append(.addAgent(texts.addAgent))
         entries.append(.agentsFooter(texts.agentsFooter))
+        entries.append(.telepathHeader(texts.telepathHeader))
+        entries.append(.channel(texts.channel, texts.channelDetail, peers[agentgramChannel], texts.subscribe))
+        entries.append(.checkUpdates(texts.checkUpdates))
+        entries.append(.telepathFooter(texts.channelFooter))
+        let appVersion = agentgramAppVersion()
+        entries.append(.version("Telepath \(appVersion.version) (\(appVersion.build))"))
         let controllerState = ItemListControllerState(presentationData: ItemListPresentationData(presentationData), title: .text(texts.title), leftNavigationButton: nil, rightNavigationButton: nil, backNavigationButton: ItemListBackButton(title: presentationData.strings.Common_Back))
         let listState = ItemListNodeState(presentationData: ItemListPresentationData(presentationData), entries: entries, style: .blocks, animateChanges: false)
         return (controllerState, (listState, arguments))
@@ -349,6 +396,9 @@ public func agentgramSettingsController(context: AccountContext) -> ViewControll
     }
     presentImpl = { [weak controller] next in
         controller?.present(next, in: .window(.root))
+    }
+    navigationImpl = { [weak controller] in
+        return controller?.navigationController as? NavigationController
     }
     return controller
 }
