@@ -326,6 +326,8 @@ func (h *Helper) voiceTurn(m *Message, t TopicState) {
 	case text == "":
 		_, _ = h.bot.Send(m.Chat.ID, m.MessageThreadID, h.t("В голосовом не нашлось слов.", "No words in the voice message."), nil)
 	default:
+		// its words, for when the owner pins it
+		h.state.remember(m.Chat.ID, m.MessageID, "(голосовое) "+text)
 		if m.ForwardOrigin != nil {
 			text = "Пересланное голосовое: " + text
 		}
@@ -370,7 +372,15 @@ func (h *Helper) onMessage(m *Message) {
 	}
 	if p := m.PinnedMessage; p != nil {
 		// the owner pinned a message in the topic: the agent hears about it with the next message
-		text := firstNonEmpty(p.Text, p.Caption, h.state.remembered(m.Chat.ID, p.MessageID), "(без текста)")
+		text := firstNonEmpty(p.Text, h.state.remembered(m.Chat.ID, p.MessageID))
+		if text == "" {
+			text = p.Caption
+			// a photo or a file: the agent gets where it lies, to look at it
+			if files := h.pinnedFiles(p); len(files) > 0 {
+				text = strings.TrimSpace(text + "\nФайлы закрепа (лежат на диске): " + strings.Join(files, ", "))
+			}
+		}
+		text = firstNonEmpty(text, "(без текста)")
 		h.state.addPin(key, Pin{ID: p.MessageID, Text: trim(text, 3000), Date: time.Now().Unix()})
 		return
 	}
@@ -1015,4 +1025,17 @@ func (h *Helper) compactedText(c Compaction) string {
 		return text + h.t(", было ", ", was ") + k(c.Before)
 	}
 	return text
+}
+
+// pinnedFiles: the pinned message's photo or file, as saved when it came, else downloaded now
+func (h *Helper) pinnedFiles(p *Message) []string {
+	if len(p.Photo) == 0 && p.Document == nil {
+		return nil
+	}
+	if dirs, _ := filepath.Glob(filepath.Join(dataDir(), "files", fmt.Sprintf("*-%d", p.MessageID))); len(dirs) > 0 {
+		if files, _ := filepath.Glob(filepath.Join(dirs[len(dirs)-1], "*")); len(files) > 0 {
+			return files
+		}
+	}
+	return h.saveFiles(p)
 }
