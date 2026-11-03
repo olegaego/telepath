@@ -2006,6 +2006,9 @@ extension ChatControllerImpl {
                     if case let .replyThread(replyThreadMessageId) = chatLocation {
                         if let channel = combinedInitialData.initialData?.peer as? TelegramChannel, channel.isForumOrMonoForum {
                             pinnedMessageId = nil
+                        } else if let user = combinedInitialData.initialData?.peer as? TelegramUser, user.isForum {
+                            // Agentgram: a bot's topic, its pins come from the pinned list as in a forum
+                            pinnedMessageId = nil
                         } else {
                             pinnedMessageId = replyThreadMessageId.effectiveTopId
                         }
@@ -2149,6 +2152,9 @@ extension ChatControllerImpl {
                 |> map { peer -> Bool in
                     if case let .channel(channel) = peer {
                         return channel.isForumOrMonoForum
+                    } else if case let .user(user) = peer, user.isForum {
+                        // Agentgram: a bot's topics keep their own pins, as a forum's topics do
+                        return true
                     } else {
                         return false
                     }
