@@ -114,6 +114,8 @@ func (b *draftBudget) obey(chat int64, err error) {
 func draftText(steps []string) string {
 	lines := []string{}
 	for i, s := range steps {
+		// one line a step: Telepath knows the draft by every line starting with «✓ » or «… »
+		s = strings.Join(strings.Fields(s), " ")
 		if i == len(steps)-1 {
 			lines = append(lines, "… "+s)
 		} else {

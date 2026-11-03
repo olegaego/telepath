@@ -33,3 +33,12 @@ func TestTopicPins(t *testing.T) {
 		t.Fatalf("other topic %q", note)
 	}
 }
+
+func TestDraftStepsAreOneLineEach(t *testing.T) {
+	text := draftText([]string{"Запускаю: ssh x 'node -e \"\n const a\"'", "Думаю"})
+	for _, line := range strings.Split(text, "\n") {
+		if !strings.HasPrefix(line, "✓ ") && !strings.HasPrefix(line, "… ") {
+			t.Fatalf("line %q in %q", line, text)
+		}
+	}
+}
