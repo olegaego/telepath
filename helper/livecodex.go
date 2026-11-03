@@ -110,8 +110,16 @@ func startLiveCodex(cwd, session, model string) (*LiveCodex, string) {
 	return c, ""
 }
 
-// Send starts a turn with the owner's message
+// Send starts a turn with the owner's message; «/compact» compacts the thread instead, which is a turn too
 func (c *LiveCodex) Send(prompt string) string {
+	if strings.TrimSpace(prompt) == compactCommand {
+		id, err := c.request("thread/compact/start", map[string]any{"threadId": c.thread})
+		if err != nil {
+			return err.Error()
+		}
+		_, e := c.waitReply(id)
+		return e
+	}
 	id, err := c.request("turn/start", map[string]any{"threadId": c.thread, "input": []any{map[string]any{"type": "text", "text": prompt}}})
 	if err != nil {
 		return err.Error()
@@ -177,6 +185,7 @@ func (c *LiveCodex) Woke() bool {
 // readTurn reads the turn's notifications until it completes
 func (c *LiveCodex) readTurn(ev TurnEvents) (TurnResult, bool) {
 	var messages []string
+	compacted := false
 	for {
 		line, ok := c.Next()
 		if !ok {
@@ -188,6 +197,13 @@ func (c *LiveCodex) readTurn(ev TurnEvents) (TurnResult, bool) {
 		}
 		switch n.Method {
 		case "item/started":
+			if n.Params.Item.Type == "contextCompaction" {
+				compacted = true
+				if ev.Step != nil {
+					ev.Step(compactingStep)
+				}
+				continue
+			}
 			if ev.Step != nil {
 				it := n.Params.Item
 				if step := describeCodexItem(codexItemKind(it.Type), it.Command, it.Query, it.Tool, len(it.Changes) > 0); step != "" {
@@ -211,6 +227,9 @@ func (c *LiveCodex) readTurn(ev TurnEvents) (TurnResult, bool) {
 			}
 			if n.Params.Turn.Status == "interrupted" {
 				result.Error = ""
+			}
+			if compacted {
+				result.Compacted = &Compaction{}
 			}
 			return result, true
 		}
@@ -281,6 +300,7 @@ func (t *CodexLiveTurn) Run(cwd, session, prompt string, ev TurnEvents) TurnResu
 	if live.thread != "" && ev.Session != nil {
 		ev.Session(live.thread)
 	}
+	before, _ := codexContext(live.thread)
 	if prompt != "" {
 		if e := live.Send(prompt); e != "" {
 			return TurnResult{Error: e}
@@ -289,8 +309,15 @@ func (t *CodexLiveTurn) Run(cwd, session, prompt string, ev TurnEvents) TurnResu
 		ev.Step("Работаю в фоне")
 	}
 	result, got := live.readTurn(ev)
-	if used, max := codexContext(live.thread); max > 0 && ev.Context != nil {
+	used, max := codexContext(live.thread)
+	if max > 0 && ev.Context != nil {
 		ev.Context(used, max)
+	}
+	if result.Compacted != nil {
+		result.Compacted.Before = before
+		if used < before {
+			result.Compacted.After = used
+		}
 	}
 	if l, ok := codexLimits(); ok && ev.Limits != nil {
 		ev.Limits(l)

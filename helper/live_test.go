@@ -321,3 +321,40 @@ func TestLiveKeepsTheContextWindow(t *testing.T) {
 		t.Fatalf("window %d, want 1000000", max)
 	}
 }
+
+func TestClaudeCompaction(t *testing.T) {
+	lines := func(items ...string) func() ([]byte, bool) {
+		return func() ([]byte, bool) {
+			if len(items) == 0 {
+				return nil, false
+			}
+			line := items[0]
+			items = items[1:]
+			return []byte(line), true
+		}
+	}
+	window := 1000000
+	var used int
+	var steps []string
+	ev := TurnEvents{Context: func(u, m int) { used = u }, Step: func(s string) { steps = append(steps, s) }}
+	// «/compact» alone: no answer, the sizes before and after
+	r, _ := readClaudeTurn(lines(`{"type":"system","subtype":"status","status":"compacting"}`,
+		`{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"manual","pre_tokens":720000,"post_tokens":38000}}`,
+		`{"type":"result","result":"Compacted"}`), ev, &window)
+	if r.Compacted == nil || r.Compacted.Before != 720000 || r.Compacted.After != 38000 || r.Text != "" || used != 38000 {
+		t.Fatalf("compact: %+v %+v used %d", r, r.Compacted, used)
+	}
+	if len(steps) != 1 || steps[0] != compactingStep {
+		t.Fatalf("steps %v", steps)
+	}
+	// compacted by itself in the middle of a turn: the answer stays
+	r, _ = readClaudeTurn(lines(`{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"auto","pre_tokens":990000,"post_tokens":40000}}`,
+		`{"type":"assistant","message":{"usage":{"input_tokens":41000}}}`, `{"type":"result","result":"готово"}`), ev, &window)
+	if r.Compacted == nil || r.Text != "готово" {
+		t.Fatalf("auto: %+v", r)
+	}
+	h := &Helper{}
+	if got := h.compactedText(Compaction{Before: 720000, After: 38000}); !strings.HasSuffix(got, ": 720k → 38k") {
+		t.Fatalf("text %q", got)
+	}
+}

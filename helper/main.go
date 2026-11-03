@@ -872,6 +872,16 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 		_, _ = h.bot.Send(chat, thread, h.t("Ошибка: ", "Error: ")+trim(result.Error, 3500), nil)
 		return
 	}
+	if c := result.Compacted; c != nil {
+		_, _ = h.bot.Send(chat, thread, h.compactedText(*c), nil)
+		if strings.TrimSpace(result.Text) == "" {
+			// «/compact» alone: the line says it all
+			h.board.set(key, func(s *TopicStatus) {
+				s.State, s.Detail, s.Since = "idle", "", time.Now().Unix()
+			})
+			return
+		}
+	}
 	text, refs := takePhotos(result.Text, t.Cwd)
 	text, options := choices(text)
 	h.sendPhotos(chat, thread, refs, &text)
@@ -970,4 +980,17 @@ func expandHome(p string) string {
 func fileExists(p string) bool {
 	_, err := os.Stat(p)
 	return err == nil
+}
+
+// «Сессия сжата: 720k → 38k»; Telepath shows this line as a service message in the topic
+func (h *Helper) compactedText(c Compaction) string {
+	k := func(n int) string { return fmt.Sprintf("%dk", (n+500)/1000) }
+	text := h.t("Сессия сжата", "Session compacted")
+	if c.Before > 0 && c.After > 0 {
+		return text + ": " + k(c.Before) + " → " + k(c.After)
+	}
+	if c.Before > 0 {
+		return text + h.t(", было ", ", was ") + k(c.Before)
+	}
+	return text
 }

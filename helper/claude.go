@@ -20,6 +20,19 @@ type TurnEvents struct {
 type TurnResult struct {
 	Text  string
 	Error string
+	// the session was compacted during the turn (by «/compact» or by itself when full): tokens before and after,
+	// After 0 when the engine does not tell
+	Compacted *Compaction
+}
+
+// the step shown while the session is compacted
+const compactingStep = "Сжимаю сессию"
+
+// the message that compacts a topic's session, for every engine
+const compactCommand = "/compact"
+
+type Compaction struct {
+	Before, After int
 }
 
 // The instruction added to every turn: the topic has no question dialogs, choices come as buttons.
@@ -93,6 +106,7 @@ func (w *limitedWriter) Write(p []byte) (int, error) {
 func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (TurnResult, bool) {
 	result := TurnResult{}
 	contextUsed, contextMax := 0, 200000
+	spoke := false // Claude said something after the last compaction
 	if *window > 0 {
 		contextMax = *window
 	}
@@ -103,12 +117,17 @@ func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (Tur
 			return result, false
 		}
 		var e struct {
-			Type      string `json:"type"`
-			SessionID string `json:"session_id"`
-			IsError   bool   `json:"is_error"`
-			Result    string `json:"result"`
-			Subtype   string `json:"subtype"`
-			Model     string `json:"model"`
+			Type      string  `json:"type"`
+			SessionID string  `json:"session_id"`
+			IsError   bool    `json:"is_error"`
+			Result    string  `json:"result"`
+			Subtype   string  `json:"subtype"`
+			Model     string  `json:"model"`
+			Status    *string `json:"status"`
+			Compact   *struct {
+				Pre  int `json:"pre_tokens"`
+				Post int `json:"post_tokens"`
+			} `json:"compact_metadata"`
 			// the result's per-model usage carries the context window
 			ModelUsage map[string]struct {
 				ContextWindow int `json:"contextWindow"`
@@ -141,11 +160,25 @@ func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (Tur
 					contextMax = 1000000
 				}
 			}
+			if e.Subtype == "status" && e.Status != nil && *e.Status == "compacting" && ev.Step != nil {
+				ev.Step(compactingStep)
+			}
+			if e.Subtype == "compact_boundary" && e.Compact != nil {
+				result.Compacted = &Compaction{Before: e.Compact.Pre, After: e.Compact.Post}
+				spoke = false
+				if e.Compact.Post > 0 {
+					contextUsed = e.Compact.Post
+					if ev.Context != nil {
+						ev.Context(contextUsed, contextMax)
+					}
+				}
+			}
 		case "rate_limit_event":
 			if l, ok := claudeLimits(line); ok && ev.Limits != nil {
 				ev.Limits(l)
 			}
 		case "assistant":
+			spoke = true
 			if u := e.Message.Usage; u != nil && ev.Context != nil {
 				contextUsed = u.InputTokens + u.CacheRead + u.CacheCreation
 				ev.Context(contextUsed, contextMax)
@@ -165,7 +198,8 @@ func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (Tur
 			}
 			if e.IsError {
 				result.Error = firstNonEmpty(e.Result, e.Subtype, "ошибка Claude Code")
-			} else {
+			} else if result.Compacted == nil || spoke {
+				// after «/compact» alone the result is the command's own output, not an answer
 				result.Text = e.Result
 			}
 			return result, true
