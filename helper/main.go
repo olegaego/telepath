@@ -370,8 +370,12 @@ func (h *Helper) onMessage(m *Message) {
 	}
 	if p := m.PinnedMessage; p != nil {
 		// the owner pinned a message in the topic: the agent hears about it with the next message
-		h.state.addPin(key, Pin{ID: p.MessageID, Text: trim(firstNonEmpty(p.Text, p.Caption, "(без текста)"), 3000), Date: time.Now().Unix()})
+		text := firstNonEmpty(p.Text, p.Caption, h.state.remembered(m.Chat.ID, p.MessageID), "(без текста)")
+		h.state.addPin(key, Pin{ID: p.MessageID, Text: trim(text, 3000), Date: time.Now().Unix()})
 		return
+	}
+	if text != "" && !strings.HasPrefix(text, "/") {
+		h.state.remember(m.Chat.ID, m.MessageID, text)
 	}
 	if text == "/unpin" || strings.HasPrefix(text, "/unpin ") {
 		id, _ := strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(text, "/unpin")), 10, 64)
@@ -919,7 +923,9 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 		h.mu.Unlock()
 	}
 	// the engine writes Markdown: sent as a rich message, as Telegram shows it; if not taken, plain text in parts
-	if _, err := h.bot.SendRich(chat, thread, trim(text, 30000), kb); err == nil {
+	if m, err := h.bot.SendRich(chat, thread, trim(text, 30000), kb); err == nil {
+		// Telegram tells about a pinned rich message without its text: kept here for when the owner pins it
+		h.state.remember(chat, m.MessageID, text)
 		return
 	}
 	parts := split(text, 4000)
@@ -928,7 +934,9 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 		if i == len(parts)-1 {
 			last = kb
 		}
-		_, _ = h.bot.Send(chat, thread, part, last)
+		if m, err := h.bot.Send(chat, thread, part, last); err == nil {
+			h.state.remember(chat, m.MessageID, part)
+		}
 	}
 }
 

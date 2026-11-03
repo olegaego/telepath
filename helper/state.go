@@ -110,6 +110,9 @@ type State struct {
 	Pins map[string][]Pin `json:"pins,omitempty"`
 	// the pins the topic's session was last told, so it hears about them again only when they change
 	PinsSent map[string]string `json:"pins_sent,omitempty"`
+	// the latest messages' texts by "chat:id", oldest first in RecentOrder: a pin of a rich message comes without it
+	Recent      map[string]string `json:"recent,omitempty"`
+	RecentOrder []string          `json:"recent_order,omitempty"`
 }
 
 type Pin struct {
@@ -312,6 +315,14 @@ func (s *State) removePin(key string, id int64) {
 // pinsNote is the block put before the owner's message when the topic's pins changed since its session last heard
 // them: the list, or that there are none any more. Empty when nothing changed.
 func (s *State) pinsNote(key string) string {
+	note, changed := s.pinsChange(key)
+	if changed {
+		s.save()
+	}
+	return note
+}
+
+func (s *State) pinsChange(key string) (string, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pins := s.Pins[key]
@@ -322,15 +333,44 @@ func (s *State) pinsNote(key string) string {
 	sig := fmt.Sprintf("%x", sha256.Sum256([]byte(b.String())))
 	last, told := s.PinsSent[key]
 	if last == sig || (!told && len(pins) == 0) {
-		return ""
+		return "", false
 	}
 	if s.PinsSent == nil {
 		s.PinsSent = map[string]string{}
 	}
 	s.PinsSent[key] = sig
-	go s.save()
 	if len(pins) == 0 {
-		return "[Закрепов в теме больше нет]\n\n"
+		return "[Закрепов в теме больше нет]\n\n", true
 	}
-	return "[Закрепы темы, весь список]\n" + b.String() + "[конец закрепов]\n\n"
+	return "[Закрепы темы, весь список]\n" + b.String() + "[конец закрепов]\n\n", true
+}
+
+// how many messages' texts are kept for pins
+const maxRecent = 300
+
+func (s *State) remember(chat, id int64, text string) {
+	if id == 0 || strings.TrimSpace(text) == "" {
+		return
+	}
+	key := fmt.Sprintf("%d:%d", chat, id)
+	s.mu.Lock()
+	if s.Recent == nil {
+		s.Recent = map[string]string{}
+	}
+	if _, ok := s.Recent[key]; !ok {
+		s.RecentOrder = append(s.RecentOrder, key)
+	}
+	s.Recent[key] = trim(text, 3000)
+	for len(s.RecentOrder) > maxRecent {
+		delete(s.Recent, s.RecentOrder[0])
+		s.RecentOrder = s.RecentOrder[1:]
+	}
+	s.mu.Unlock()
+	s.save()
+}
+
+func (s *State) remembered(chat, id int64) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Recent[fmt.Sprintf("%d:%d", chat, id)]
 }
