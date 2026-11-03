@@ -37,8 +37,6 @@ private struct AgentgramTexts {
     var connect: String { ru ? "Подключить" : "Connect" }
     var create: String { ru ? "создать" : "create" }
     var telepathHeader: String { "TELEPATH" }
-    var channel: String { "@\(agentgramChannel)" }
-    var channelDetail: String { ru ? "канал: новости и обновления" : "channel: news and updates" }
     var subscribe: String { ru ? "Подписаться" : "Subscribe" }
     var checkUpdates: String { ru ? "Проверить наличие обновлений" : "Check for Updates" }
     var channelFooter: String { ru ? "Подпишитесь на канал, чтобы следить за новостями." : "Subscribe to the channel to follow the news." }
@@ -103,6 +101,7 @@ private final class MainArguments {
     var setVoice: (Bool) -> Void = { _ in }
     var openVoice: () -> Void = {}
     var openChannel: () -> Void = {}
+    var joinChannel: (EnginePeer.Id) -> Void = { _ in }
     var checkUpdates: () -> Void = {}
     let context: AccountContext
 
@@ -225,8 +224,13 @@ private enum MainEntry: ItemListNodeEntry {
         case let .telepathHeader(text):
             return ItemListSectionHeaderItem(presentationData: presentationData, text: text, sectionId: self.section)
         case let .channel(title, detail, peer, label):
-            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: peer == nil ? channelIcon : nil, context: arguments.context, iconPeer: peer, title: title, label: label, labelStyle: .coloredText(presentationData.theme.list.itemAccentColor), additionalDetailLabel: detail, sectionId: self.section, style: .blocks, disclosureStyle: .none, action: {
-                arguments.openChannel()
+            // not in the channel: «Subscribe» joins it, as Telegram's own button does; in it: the row opens it
+            return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: peer == nil ? channelIcon : nil, context: arguments.context, iconPeer: peer, title: title, label: label, labelStyle: .coloredText(presentationData.theme.list.itemAccentColor), additionalDetailLabel: detail, sectionId: self.section, style: .blocks, disclosureStyle: label.isEmpty ? .arrow : .none, action: {
+                if !label.isEmpty, let peer {
+                    arguments.joinChannel(peer.id)
+                } else {
+                    arguments.openChannel()
+                }
             })
         case let .checkUpdates(title):
             return ItemListDisclosureItem(presentationData: presentationData, systemStyle: .glass, icon: updatesIcon, title: title, label: "", sectionId: self.section, style: .blocks, disclosureStyle: .none, action: {
@@ -245,7 +249,10 @@ public func agentgramSettingsController(context: AccountContext) -> ViewControll
     let browser = agentgramBrowser
     let agentPeers: Signal<[String: EnginePeer], NoError> = combineLatest(ConnectedComputers.changed.get(), AgentgramChatBots.changed.get())
     |> mapToSignal { _, _ -> Signal<[String: EnginePeer], NoError> in
-        let bots = ConnectedComputers.all(context).map { $0.bot } + AgentgramChatBots.all(context).map { $0.bot } + [agentgramChannel]
+        let bots = ConnectedComputers.all(context).map { $0.bot } + AgentgramChatBots.all(context).map { $0.bot }
+        if bots.isEmpty {
+            return .single([:])
+        }
         return combineLatest(bots.map { bot in
             agentgramPeer(context, username: bot)
             |> map { peer -> (String, EnginePeer?) in (bot, peer) }
@@ -258,6 +265,14 @@ public func agentgramSettingsController(context: AccountContext) -> ViewControll
             return result
         }
     }
+    // the news channel, live: its name, and whether the owner is in it already
+    let channelPeer: Signal<EnginePeer?, NoError> = .single(nil) |> then(agentgramPeer(context, username: agentgramChannel)
+    |> mapToSignal { peer -> Signal<EnginePeer?, NoError> in
+        guard let peer else {
+            return .single(nil)
+        }
+        return context.engine.data.subscribe(TelegramEngine.EngineData.Item.Peer.Peer(id: peer.id))
+    })
     let arguments = MainArguments(context: context, openTopicsView: {
         pushImpl?(agentgramTopicsViewController(context: context))
     }, openTabs: {
@@ -277,6 +292,9 @@ public func agentgramSettingsController(context: AccountContext) -> ViewControll
         pushImpl?(agentgramStatusesController(context: context))
     }
     var navigationImpl: (() -> NavigationController?)?
+    arguments.joinChannel = { peerId in
+        let _ = context.engine.peers.joinChannel(peerId: peerId, hash: nil).start()
+    }
     arguments.openChannel = {
         let presentationData = context.sharedContext.currentPresentationData.with { $0 }
         context.sharedContext.openExternalUrl(context: context, urlContext: .generic, url: "https://t.me/\(agentgramChannel)", forceExternal: false, presentationData: presentationData, navigationController: navigationImpl?(), dismissInput: {})
@@ -345,8 +363,8 @@ public func agentgramSettingsController(context: AccountContext) -> ViewControll
         })
     }
 
-    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, ThreadedBotSessions.settings(engine: context.engine), Superfolders.settings(engine: context.engine), browser.computers.get(), ConnectedComputers.changed.get(), .single([:]) |> then(agentPeers), AgentgramVoiceSettings.changed.get(), AgentgramStatusesMode.changed.get(), AgentgramChatBots.changed.get())
-    |> map { presentationData, settings, superfolder, found, _, peers, _, _, _ -> (ItemListControllerState, (ItemListNodeState, Any)) in
+    let signal = combineLatest(queue: .mainQueue(), context.sharedContext.presentationData, ThreadedBotSessions.settings(engine: context.engine), Superfolders.settings(engine: context.engine), browser.computers.get(), ConnectedComputers.changed.get(), .single([:]) |> then(agentPeers), AgentgramVoiceSettings.changed.get(), AgentgramStatusesMode.changed.get(), AgentgramChatBots.changed.get(), channelPeer)
+    |> map { presentationData, settings, superfolder, found, _, peers, _, _, _, channel -> (ItemListControllerState, (ItemListNodeState, Any)) in
         let texts = AgentgramTexts(presentationData.strings)
         var entries: [MainEntry] = []
         entries.append(.viewHeader(texts.viewHeader))
@@ -380,7 +398,11 @@ public func agentgramSettingsController(context: AccountContext) -> ViewControll
         entries.append(.addAgent(texts.addAgent))
         entries.append(.agentsFooter(texts.agentsFooter))
         entries.append(.telepathHeader(texts.telepathHeader))
-        entries.append(.channel(texts.channel, texts.channelDetail, peers[agentgramChannel], texts.subscribe))
+        var joined = false
+        if case let .channel(channel) = channel, case .member = channel.participationStatus {
+            joined = true
+        }
+        entries.append(.channel(channel?.compactDisplayTitle ?? "Telepath", "@\(agentgramChannel)", channel, joined ? "" : texts.subscribe))
         entries.append(.checkUpdates(texts.checkUpdates))
         entries.append(.telepathFooter(texts.channelFooter))
         let appVersion = agentgramAppVersion()
