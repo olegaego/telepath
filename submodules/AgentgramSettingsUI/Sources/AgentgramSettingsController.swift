@@ -37,8 +37,8 @@ private struct AgentgramTexts {
     var connect: String { ru ? "Подключить" : "Connect" }
     var create: String { ru ? "создать" : "create" }
     var telepathHeader: String { "TELEPATH" }
-    var channel: String { ru ? "Канал @\(agentgramChannel)" : "Channel @\(agentgramChannel)" }
-    var channelDetail: String { ru ? "новости и обновления" : "news and updates" }
+    var channel: String { "@\(agentgramChannel)" }
+    var channelDetail: String { ru ? "канал: новости и обновления" : "channel: news and updates" }
     var subscribe: String { ru ? "Подписаться" : "Subscribe" }
     var checkUpdates: String { ru ? "Проверить наличие обновлений" : "Check for Updates" }
     var channelFooter: String { ru ? "Подпишитесь на канал, чтобы следить за новостями." : "Subscribe to the channel to follow the news." }
