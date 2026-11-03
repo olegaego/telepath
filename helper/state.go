@@ -1,11 +1,14 @@
 package main
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 // What the helper keeps on the computer, in ~/.agentgram: the bot it works as, its owner, and for each topic
@@ -102,6 +105,17 @@ type State struct {
 	path   string
 	Offset int64                  `json:"offset"`
 	Topics map[string]*TopicState `json:"topics"`
+	// each topic's pinned messages, oldest first: Telegram tells the bot about a pin by a service message, and
+	// Telepath sends «/unpin» when the owner unpins
+	Pins map[string][]Pin `json:"pins,omitempty"`
+	// the pins the topic's session was last told, so it hears about them again only when they change
+	PinsSent map[string]string `json:"pins_sent,omitempty"`
+}
+
+type Pin struct {
+	ID   int64  `json:"id"`
+	Text string `json:"text"`
+	Date int64  `json:"date"`
 }
 
 func dataDir() string {
@@ -250,4 +264,73 @@ func (c *Config) setAgentModel(bot, engine, model string) {
 			c.Agents[i].Models[engine] = model
 		}
 	}
+}
+
+// most pins a topic keeps; the oldest goes first
+const maxPins = 10
+
+func (s *State) addPin(key string, p Pin) {
+	s.mu.Lock()
+	if s.Pins == nil {
+		s.Pins = map[string][]Pin{}
+	}
+	pins := s.Pins[key][:0:0]
+	for _, old := range s.Pins[key] {
+		if old.ID != p.ID {
+			pins = append(pins, old)
+		}
+	}
+	pins = append(pins, p)
+	if len(pins) > maxPins {
+		pins = pins[len(pins)-maxPins:]
+	}
+	s.Pins[key] = pins
+	s.mu.Unlock()
+	s.save()
+}
+
+// removePin takes one pin off the topic, or all of them when id is 0
+func (s *State) removePin(key string, id int64) {
+	s.mu.Lock()
+	var pins []Pin
+	if id != 0 {
+		for _, p := range s.Pins[key] {
+			if p.ID != id {
+				pins = append(pins, p)
+			}
+		}
+	}
+	if len(pins) == 0 {
+		delete(s.Pins, key)
+	} else {
+		s.Pins[key] = pins
+	}
+	s.mu.Unlock()
+	s.save()
+}
+
+// pinsNote is the block put before the owner's message when the topic's pins changed since its session last heard
+// them: the list, or that there are none any more. Empty when nothing changed.
+func (s *State) pinsNote(key string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pins := s.Pins[key]
+	var b strings.Builder
+	for i, p := range pins {
+		fmt.Fprintf(&b, "%d. (сообщение %d, %s) %s\n", i+1, p.ID, time.Unix(p.Date, 0).Format("02.01 15:04"), p.Text)
+	}
+	sig := fmt.Sprintf("%x", sha256.Sum256([]byte(b.String())))
+	last, told := s.PinsSent[key]
+	if last == sig || (!told && len(pins) == 0) {
+		return ""
+	}
+	if s.PinsSent == nil {
+		s.PinsSent = map[string]string{}
+	}
+	s.PinsSent[key] = sig
+	go s.save()
+	if len(pins) == 0 {
+		return "[Закрепов в теме больше нет]\n\n"
+	}
+	return "[Закрепы темы, весь список]\n" + b.String() + "[конец закрепов]\n\n"
 }

@@ -368,6 +368,16 @@ func (h *Helper) onMessage(m *Message) {
 		h.stop(key)
 		return
 	}
+	if p := m.PinnedMessage; p != nil {
+		// the owner pinned a message in the topic: the agent hears about it with the next message
+		h.state.addPin(key, Pin{ID: p.MessageID, Text: trim(firstNonEmpty(p.Text, p.Caption, "(без текста)"), 3000), Date: time.Now().Unix()})
+		return
+	}
+	if text == "/unpin" || strings.HasPrefix(text, "/unpin ") {
+		id, _ := strconv.ParseInt(strings.TrimSpace(strings.TrimPrefix(text, "/unpin")), 10, 64)
+		h.state.removePin(key, id)
+		return
+	}
 	h.mu.Lock()
 	p := h.pending[key]
 	h.mu.Unlock()
@@ -826,6 +836,10 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 			}
 		}
 	}()
+	if prompt != "" && prompt != compactCommand {
+		// the topic's pins, when they changed since the session last heard them
+		prompt = h.state.pinsNote(key) + prompt
+	}
 	result := turn.Run(t.Cwd, session, prompt, TurnEvents{
 		Step: func(text string) {
 			now := time.Now()

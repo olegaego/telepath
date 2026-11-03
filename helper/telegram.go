@@ -123,6 +123,7 @@ type Message struct {
 	ForumTopicCreated *struct {
 		Name string `json:"name"`
 	} `json:"forum_topic_created"`
+	PinnedMessage *Message `json:"pinned_message"` // the service message «pinned …»
 }
 
 type CallbackQuery struct {
