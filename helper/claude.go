@@ -88,9 +88,15 @@ func (w *limitedWriter) Write(p []byte) (int, error) {
 }
 
 // Reads one turn of Claude Code's stream-json from `next` until its result; false when the lines ended first
-func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents) (TurnResult, bool) {
+// window carries the session's context window from turn to turn: a living process says its model (and so a
+// 1M window) only once, at its start
+func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (TurnResult, bool) {
 	result := TurnResult{}
 	contextUsed, contextMax := 0, 200000
+	if *window > 0 {
+		contextMax = *window
+	}
+	defer func() { *window = contextMax }()
 	for {
 		line, ok := next()
 		if !ok {

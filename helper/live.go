@@ -155,6 +155,7 @@ type LiveClaude struct {
 	cwd     string
 	model   string
 	stopped int
+	window  int // the session's context window, learned at the start and from each result
 }
 
 var liveClaudeBinary = claudeBinary
@@ -256,7 +257,7 @@ func (t *ClaudeLiveTurn) Run(cwd, session, prompt string, ev TurnEvents) TurnRes
 	} else if ev.Step != nil {
 		ev.Step("Работаю в фоне")
 	}
-	result, got := readClaudeTurn(live.Next, ev)
+	result, got := readClaudeTurn(live.Next, ev, &live.window)
 	t.mu.Lock()
 	stopped := t.stop
 	t.mu.Unlock()

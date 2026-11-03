@@ -299,3 +299,25 @@ func TestTopicSendsPhotos(t *testing.T) {
 		}
 	}
 }
+
+// A living process says its 1M model once; later turns keep that window, not 200k
+func TestLiveKeepsTheContextWindow(t *testing.T) {
+	window := 0
+	lines := func(items ...string) func() ([]byte, bool) {
+		return func() ([]byte, bool) {
+			if len(items) == 0 {
+				return nil, false
+			}
+			line := items[0]
+			items = items[1:]
+			return []byte(line), true
+		}
+	}
+	var max int
+	ev := TurnEvents{Context: func(used, m int) { max = m }}
+	readClaudeTurn(lines(`{"type":"system","subtype":"init","model":"claude-opus-4[1m]"}`, `{"type":"assistant","message":{"usage":{"input_tokens":900000}}}`, `{"type":"result","result":"a"}`), ev, &window)
+	readClaudeTurn(lines(`{"type":"assistant","message":{"usage":{"input_tokens":922000}}}`, `{"type":"result","result":"b"}`), ev, &window)
+	if max != 1000000 {
+		t.Fatalf("window %d, want 1000000", max)
+	}
+}
