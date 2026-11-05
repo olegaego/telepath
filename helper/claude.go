@@ -23,6 +23,8 @@ type TurnResult struct {
 	// the session was compacted during the turn (by «/compact» or by itself when full): tokens before and after,
 	// After 0 when the engine does not tell
 	Compacted *Compaction
+	// the tokens of this turn: what came in new (not read from the cache) and what the engine wrote
+	In, Out int
 }
 
 // the step shown while the session is compacted
@@ -109,6 +111,7 @@ func (w *limitedWriter) Write(p []byte) (int, error) {
 func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (TurnResult, bool) {
 	result := TurnResult{}
 	contextUsed, contextMax := 0, 200000
+	turnTokens := map[string][2]int{}
 	spoke := false // Claude said something after the last compaction
 	if *window > 0 {
 		contextMax = *window
@@ -136,7 +139,9 @@ func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (Tur
 				ContextWindow int `json:"contextWindow"`
 			} `json:"modelUsage"`
 			Message struct {
+				ID    string `json:"id"`
 				Usage *struct {
+					OutputTokens  int `json:"output_tokens"`
 					InputTokens   int `json:"input_tokens"`
 					CacheRead     int `json:"cache_read_input_tokens"`
 					CacheCreation int `json:"cache_creation_input_tokens"`
@@ -182,9 +187,13 @@ func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (Tur
 			}
 		case "assistant":
 			spoke = true
-			if u := e.Message.Usage; u != nil && ev.Context != nil {
-				contextUsed = u.InputTokens + u.CacheRead + u.CacheCreation
-				ev.Context(contextUsed, contextMax)
+			if u := e.Message.Usage; u != nil {
+				// one message comes in several lines with the same usage: counted once
+				turnTokens[e.Message.ID] = [2]int{u.InputTokens + u.CacheCreation, u.OutputTokens}
+				if ev.Context != nil {
+					contextUsed = u.InputTokens + u.CacheRead + u.CacheCreation
+					ev.Context(contextUsed, contextMax)
+				}
 			}
 			for _, b := range e.Message.Content {
 				if b.Type == "tool_use" && ev.Step != nil {
@@ -192,6 +201,10 @@ func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (Tur
 				}
 			}
 		case "result":
+			for _, t := range turnTokens {
+				result.In += t[0]
+				result.Out += t[1]
+			}
 			for _, u := range e.ModelUsage {
 				if u.ContextWindow > 0 && contextUsed > 0 && ev.Context != nil {
 					contextMax = u.ContextWindow

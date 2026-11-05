@@ -84,6 +84,14 @@ func TestDraftLimitsAndCodexRefresh(t *testing.T) {
 	}
 }
 
+func TestShortTokens(t *testing.T) {
+	for n, want := range map[int]string{0: "0", 999: "999", 3210: "3.2k", 10400: "10k", 182600: "183k"} {
+		if got := shortTokens(n); got != want {
+			t.Fatalf("%d: %q", n, got)
+		}
+	}
+}
+
 // A network error must not carry the bot's token into the log
 func TestNetworkErrorHidesToken(t *testing.T) {
 	old := botAPI

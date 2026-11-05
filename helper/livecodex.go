@@ -301,6 +301,7 @@ func (t *CodexLiveTurn) Run(cwd, session, prompt string, ev TurnEvents) TurnResu
 		ev.Session(live.thread)
 	}
 	before, _ := codexContext(live.thread)
+	inBefore, outBefore := codexTotals(live.thread)
 	if prompt != "" {
 		if e := live.Send(prompt); e != "" {
 			return TurnResult{Error: e}
@@ -309,6 +310,8 @@ func (t *CodexLiveTurn) Run(cwd, session, prompt string, ev TurnEvents) TurnResu
 		ev.Step("Работаю в фоне")
 	}
 	result, got := live.readTurn(ev)
+	inAfter, outAfter := codexTotals(live.thread)
+	result.In, result.Out = inAfter-inBefore, outAfter-outBefore
 	used, max := codexContext(live.thread)
 	if max > 0 && ev.Context != nil {
 		ev.Context(used, max)

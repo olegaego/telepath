@@ -626,6 +626,28 @@ func (h *Helper) elapsed(d time.Duration) string {
 	return h.t(fmt.Sprintf("%d с", sec), fmt.Sprintf("%d s", sec))
 }
 
+// The answer's footer: how long, who, the turn's tokens and how full the context is now
+func (h *Helper) answerFooter(d time.Duration, engine string, in, out, context int) string {
+	parts := []string{h.elapsed(d), engineName(engine)}
+	if in > 0 || out > 0 {
+		parts = append(parts, "in "+shortTokens(in), "out "+shortTokens(out))
+	}
+	if context > 0 {
+		parts = append(parts, h.t("контекст ", "context ")+shortTokens(context))
+	}
+	return strings.Join(parts, " · ")
+}
+
+func shortTokens(n int) string {
+	switch {
+	case n < 1000:
+		return fmt.Sprint(n)
+	case n < 10000:
+		return fmt.Sprintf("%.1fk", float64(n)/1000)
+	}
+	return fmt.Sprintf("%dk", (n+500)/1000)
+}
+
 func engineInstalled(engine string) bool {
 	if engine == "codex" {
 		return codexInstalled()
@@ -811,6 +833,7 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 	var shown string
 	var lastShown time.Time
 	limitsLine := draftLimitsLine(engine, allLimits()[engine])
+	contextNow := 0
 	var mu sync.Mutex
 	finished := false
 	show := func() {
@@ -892,6 +915,9 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 			mu.Unlock()
 		},
 		Context: func(used, max int) {
+			mu.Lock()
+			contextNow = used
+			mu.Unlock()
 			h.board.set(key, func(s *TopicStatus) {
 				s.Context = &ContextUse{Used: used, Max: max}
 			})
@@ -929,7 +955,10 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 			s.State = "waiting_you"
 		}
 	})
-	text = firstNonEmpty(text, h.t("Готово.", "Done.")) + "\n\n---\n\n" + h.elapsed(time.Since(started)) + " · " + engineName(engine)
+	text = firstNonEmpty(text, h.t("Готово.", "Done."))
+	mu.Lock()
+	footer := h.answerFooter(time.Since(started), engine, result.In, result.Out, contextNow)
+	mu.Unlock()
 	defer h.warnLimits(chat, thread, engine, warnings)
 	var kb *Keyboard
 	if len(options) > 0 {
@@ -942,12 +971,12 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 		h.mu.Unlock()
 	}
 	// the engine writes Markdown: sent as a rich message, as Telegram shows it; if not taken, plain text in parts
-	if m, err := h.bot.SendRich(chat, thread, trim(text, 30000), kb); err == nil {
+	if m, err := h.bot.SendRich(chat, thread, trim(text, 30000)+"\n\n<footer>"+footer+"</footer>", kb); err == nil {
 		// Telegram tells about a pinned rich message without its text: kept here for when the owner pins it
 		h.state.remember(chat, m.MessageID, text)
 		return
 	}
-	parts := split(text, 4000)
+	parts := split(text+"\n\n"+footer, 4000)
 	for i, part := range parts {
 		var last *Keyboard
 		if i == len(parts)-1 {

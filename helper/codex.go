@@ -46,6 +46,43 @@ func codexInstalled() bool {
 	return codexBinary() != "codex"
 }
 
+// All the tokens of a Codex session so far, new input and output: the difference tells a turn's
+func codexTotals(thread string) (int, int) {
+	if thread == "" {
+		return 0, 0
+	}
+	home, _ := os.UserHomeDir()
+	files, _ := filepath.Glob(filepath.Join(home, ".codex", "sessions", "*", "*", "*", "*"+thread+".jsonl"))
+	if len(files) == 0 {
+		return 0, 0
+	}
+	data, err := os.ReadFile(files[0])
+	if err != nil {
+		return 0, 0
+	}
+	in, out := 0, 0
+	for _, line := range strings.Split(string(data), "\n") {
+		if !strings.Contains(line, `"token_count"`) {
+			continue
+		}
+		var e struct {
+			Payload struct {
+				Info *struct {
+					Total struct {
+						Input  int `json:"input_tokens"`
+						Cached int `json:"cached_input_tokens"`
+						Output int `json:"output_tokens"`
+					} `json:"total_token_usage"`
+				} `json:"info"`
+			} `json:"payload"`
+		}
+		if json.Unmarshal([]byte(line), &e) == nil && e.Payload.Info != nil {
+			in, out = e.Payload.Info.Total.Input-e.Payload.Info.Total.Cached, e.Payload.Info.Total.Output
+		}
+	}
+	return in, out
+}
+
 // How full a Codex session's context is: Codex writes it into the session file (the last request's tokens and the
 // model's window)
 func codexContext(thread string) (int, int) {
