@@ -674,6 +674,7 @@ func engineInstalled(engine string) bool {
 func (h *Helper) stop(key string) {
 	h.mu.Lock()
 	w := h.topics[key]
+	log.Printf("стоп: тема %s, тема известна: %v, ход идёт: %v", key, w != nil, w != nil && w.turn != nil)
 	if w != nil {
 		w.queue = nil
 	}
@@ -844,9 +845,9 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 	var stepTimes []time.Time
 	var shown string
 	var lastShown time.Time
-	limitsLine := ""
+	limitsNow := EngineLimits{}
 	if draftLimitsOn {
-		limitsLine = draftLimitsLine(engine, allLimits()[engine])
+		limitsNow = allLimits()[engine]
 	}
 	contextNow, contextMaxNow := 0, 0
 	var mu sync.Mutex
@@ -857,8 +858,10 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 		if text == "" {
 			text = "… Думаю"
 		}
-		if limitsLine != "" {
-			text = limitsLine + "\n" + text
+		if draftLimitsOn {
+			if line := draftLimitsLine(engine, limitsNow, contextNow, contextMaxNow); line != "" {
+				text = line + "\n" + text
+			}
 		}
 		due := withDraft && !finished && time.Since(started) >= draftAfter && (text != shown || time.Since(lastShown) >= draftKeep)
 		mu.Unlock()
@@ -925,9 +928,9 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 		Limits: func(l EngineLimits) {
 			warnings = append(warnings, saveLimits(engine, l)...)
 			if draftLimitsOn {
-				line := draftLimitsLine(engine, allLimits()[engine])
+				fresh := allLimits()[engine]
 				mu.Lock()
-				limitsLine = line
+				limitsNow = fresh
 				mu.Unlock()
 			}
 		},

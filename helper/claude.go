@@ -110,7 +110,7 @@ func (w *limitedWriter) Write(p []byte) (int, error) {
 // 1M window) only once, at its start
 func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (TurnResult, bool) {
 	result := TurnResult{}
-	contextUsed, contextMax := 0, 200000
+	contextUsed, contextMax := 0, 1000000
 	turnTokens := map[string][2]int{}
 	spoke := false // Claude said something after the last compaction
 	if *window > 0 {
@@ -163,10 +163,6 @@ func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (Tur
 		case "system":
 			if e.Subtype == "init" && e.Model != "" {
 				seenModel("claude", e.Model)
-				contextMax = 200000
-				if strings.HasSuffix(e.Model, "[1m]") {
-					contextMax = 1000000
-				}
 			}
 			if e.Subtype == "status" && e.Status != nil && *e.Status == "compacting" && ev.Step != nil {
 				ev.Step(compactingStep)
@@ -190,10 +186,8 @@ func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (Tur
 			if u := e.Message.Usage; u != nil {
 				// one message comes in several lines with the same usage: counted once
 				turnTokens[e.Message.ID] = [2]int{u.InputTokens + u.CacheCreation, u.OutputTokens}
-				if ev.Context != nil {
-					contextUsed = u.InputTokens + u.CacheRead + u.CacheCreation
-					ev.Context(contextUsed, contextMax)
-				}
+				// told at the end of the turn: until then the topic shows the last turn's numbers
+				contextUsed = u.InputTokens + u.CacheRead + u.CacheCreation
 			}
 			for _, b := range e.Message.Content {
 				if b.Type == "tool_use" && ev.Step != nil {
@@ -206,11 +200,13 @@ func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (Tur
 				result.Out += t[1]
 			}
 			for _, u := range e.ModelUsage {
-				if u.ContextWindow > 0 && contextUsed > 0 && ev.Context != nil {
+				if u.ContextWindow > 0 {
 					contextMax = u.ContextWindow
-					ev.Context(contextUsed, contextMax)
 					break
 				}
+			}
+			if contextUsed > 0 && ev.Context != nil {
+				ev.Context(contextUsed, contextMax)
 			}
 			if e.IsError {
 				result.Error = firstNonEmpty(e.Result, e.Subtype, "ошибка Claude Code")

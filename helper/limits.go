@@ -118,15 +118,22 @@ func watchCodexLimits() {
 // Off until the iPhone build that reads this line is out: older ones show it as a step
 const draftLimitsOn = false
 
-// The limits' line of the live draft, so the phone has fresh numbers away from home too. It starts with «✓ » as every
+// The line of the live draft with the limits and the context, so the phone has fresh numbers away from home too. It starts with «✓ » as every
 // line of a draft does; Telepath takes it out of the steps. An engine that told nothing yet has no line.
-func draftLimitsLine(engine string, l EngineLimits) string {
-	if len(l.Windows) == 0 {
+func draftLimitsLine(engine string, l EngineLimits, used, max int) string {
+	if len(l.Windows) == 0 && (used == 0 || max == 0) {
 		return ""
 	}
-	parts := []string{"✓ limits", engine, fmt.Sprint(l.Time)}
+	when := l.Time
+	if when == 0 {
+		when = time.Now().Unix()
+	}
+	parts := []string{"✓ limits", engine, fmt.Sprint(when)}
 	for _, w := range l.Windows {
 		parts = append(parts, fmt.Sprintf("%s=%.0f:%d", w.Name, w.Percent, w.ResetsAt))
+	}
+	if used > 0 && max > 0 {
+		parts = append(parts, fmt.Sprintf("ctx=%d/%d", used, max))
 	}
 	return strings.Join(parts, " ")
 }

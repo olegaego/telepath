@@ -30,11 +30,11 @@ func TestDraftBudget(t *testing.T) {
 
 // The draft's limits line, and Codex's numbers read from its files without using up the 80% warning
 func TestDraftLimitsAndCodexRefresh(t *testing.T) {
-	if got := draftLimitsLine("codex", EngineLimits{}); got != "" {
+	if got := draftLimitsLine("codex", EngineLimits{}, 0, 0); got != "" {
 		t.Fatalf("no windows, no line: %q", got)
 	}
-	got := draftLimitsLine("claude", EngineLimits{Time: 100, Windows: []LimitWindow{{Name: "5h", Percent: 96.6, ResetsAt: 200}, {Name: "week", Percent: 40, ResetsAt: 300}}})
-	if got != "✓ limits claude 100 5h=97:200 week=40:300" {
+	got := draftLimitsLine("claude", EngineLimits{Time: 100, Windows: []LimitWindow{{Name: "5h", Percent: 96.6, ResetsAt: 200}, {Name: "week", Percent: 40, ResetsAt: 300}}}, 183000, 1000000)
+	if got != "✓ limits claude 100 5h=97:200 week=40:300 ctx=183000/1000000" {
 		t.Fatalf("line: %q", got)
 	}
 
