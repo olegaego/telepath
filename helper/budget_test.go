@@ -85,7 +85,7 @@ func TestDraftLimitsAndCodexRefresh(t *testing.T) {
 }
 
 func TestShortTokens(t *testing.T) {
-	for n, want := range map[int]string{0: "0", 999: "999", 3210: "3.2k", 10400: "10k", 182600: "183k"} {
+	for n, want := range map[int]string{0: "0", 999: "999", 3210: "3.2k", 10400: "10k", 182600: "183k", 1000000: "1M", 1500000: "1.5M"} {
 		if got := shortTokens(n); got != want {
 			t.Fatalf("%d: %q", n, got)
 		}

@@ -115,6 +115,9 @@ func watchCodexLimits() {
 	}
 }
 
+// Off until the iPhone build that reads this line is out: older ones show it as a step
+const draftLimitsOn = false
+
 // The limits' line of the live draft, so the phone has fresh numbers away from home too. It starts with «✓ » as every
 // line of a draft does; Telepath takes it out of the steps. An engine that told nothing yet has no line.
 func draftLimitsLine(engine string, l EngineLimits) string {

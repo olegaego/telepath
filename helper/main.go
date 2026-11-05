@@ -618,24 +618,33 @@ func (h *Helper) warnLimits(chat, thread int64, engine string, windows []LimitWi
 	}
 }
 
-func (h *Helper) elapsed(d time.Duration) string {
-	sec := int(d.Seconds())
-	if sec >= 60 {
-		return h.t(fmt.Sprintf("%d мин %d с", sec/60, sec%60), fmt.Sprintf("%d min %d s", sec/60, sec%60))
-	}
-	return h.t(fmt.Sprintf("%d с", sec), fmt.Sprintf("%d s", sec))
-}
+// The custom emoji of the agent's footer, from the set tpagent_by_workerclaude_robot
+const claudeFooterEmoji = `<tg-emoji emoji-id="5431695704454116000">🤖</tg-emoji>`
 
-// The answer's footer: how long, who, the turn's tokens and how full the context is now
-func (h *Helper) answerFooter(d time.Duration, engine string, in, out, context int) string {
-	parts := []string{h.elapsed(d), engineName(engine)}
-	if in > 0 || out > 0 {
-		parts = append(parts, "in "+shortTokens(in), "out "+shortTokens(out))
+// The answer's footer: who, how long, the turn's tokens (↑ sent to the engine, new ones; ↓ its answer), the context
+func (h *Helper) answerFooter(who string, d time.Duration, in, out, context, contextMax int) string {
+	sec := int(d.Seconds())
+	took := h.t(fmt.Sprintf("%dс", sec), fmt.Sprintf("%ds", sec))
+	if sec >= 60 {
+		took = h.t(fmt.Sprintf("%dм %dс", sec/60, sec%60), fmt.Sprintf("%dm %ds", sec/60, sec%60))
 	}
-	if context > 0 {
-		parts = append(parts, h.t("контекст ", "context ")+shortTokens(context))
+	parts := []string{who, took}
+	if in > 0 || out > 0 {
+		parts = append(parts, "↑"+shortTokens(in)+" ↓"+shortTokens(out))
+	}
+	if context > 0 && contextMax > 0 {
+		parts = append(parts, shortTokens(context)+"/"+shortTokens(contextMax))
+	} else if context > 0 {
+		parts = append(parts, shortTokens(context))
 	}
 	return strings.Join(parts, " · ")
+}
+
+func uniqueStrings(a, b string) []string {
+	if a == b {
+		return []string{a}
+	}
+	return []string{a, b}
 }
 
 func shortTokens(n int) string {
@@ -645,7 +654,10 @@ func shortTokens(n int) string {
 	case n < 10000:
 		return fmt.Sprintf("%.1fk", float64(n)/1000)
 	}
-	return fmt.Sprintf("%dk", (n+500)/1000)
+	if n < 1000000 {
+		return fmt.Sprintf("%dk", (n+500)/1000)
+	}
+	return strings.TrimSuffix(fmt.Sprintf("%.1f", float64(n)/1000000), ".0") + "M"
 }
 
 func engineInstalled(engine string) bool {
@@ -832,8 +844,11 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 	var stepTimes []time.Time
 	var shown string
 	var lastShown time.Time
-	limitsLine := draftLimitsLine(engine, allLimits()[engine])
-	contextNow := 0
+	limitsLine := ""
+	if draftLimitsOn {
+		limitsLine = draftLimitsLine(engine, allLimits()[engine])
+	}
+	contextNow, contextMaxNow := 0, 0
 	var mu sync.Mutex
 	finished := false
 	show := func() {
@@ -909,14 +924,16 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 		},
 		Limits: func(l EngineLimits) {
 			warnings = append(warnings, saveLimits(engine, l)...)
-			line := draftLimitsLine(engine, allLimits()[engine])
-			mu.Lock()
-			limitsLine = line
-			mu.Unlock()
+			if draftLimitsOn {
+				line := draftLimitsLine(engine, allLimits()[engine])
+				mu.Lock()
+				limitsLine = line
+				mu.Unlock()
+			}
 		},
 		Context: func(used, max int) {
 			mu.Lock()
-			contextNow = used
+			contextNow, contextMaxNow = used, max
 			mu.Unlock()
 			h.board.set(key, func(s *TopicStatus) {
 				s.Context = &ContextUse{Used: used, Max: max}
@@ -957,7 +974,12 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 	})
 	text = firstNonEmpty(text, h.t("Готово.", "Done."))
 	mu.Lock()
-	footer := h.answerFooter(time.Since(started), engine, result.In, result.Out, contextNow)
+	took := time.Since(started)
+	plainFooter := h.answerFooter(engineName(engine), took, result.In, result.Out, contextNow, contextMaxNow)
+	footer := plainFooter
+	if engine == "claude" {
+		footer = h.answerFooter(claudeFooterEmoji, took, result.In, result.Out, contextNow, contextMaxNow)
+	}
 	mu.Unlock()
 	defer h.warnLimits(chat, thread, engine, warnings)
 	var kb *Keyboard
@@ -971,12 +993,15 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 		h.mu.Unlock()
 	}
 	// the engine writes Markdown: sent as a rich message, as Telegram shows it; if not taken, plain text in parts
-	if m, err := h.bot.SendRich(chat, thread, trim(text, 30000)+"\n\n<footer>"+footer+"</footer>", kb); err == nil {
-		// Telegram tells about a pinned rich message without its text: kept here for when the owner pins it
-		h.state.remember(chat, m.MessageID, text)
-		return
+	// a bot Telegram does not let use the emoji sends the footer with the engine's name
+	for _, f := range uniqueStrings(footer, plainFooter) {
+		if m, err := h.bot.SendRich(chat, thread, trim(text, 30000)+"\n\n<footer>"+f+"</footer>", kb); err == nil {
+			// Telegram tells about a pinned rich message without its text: kept here for when the owner pins it
+			h.state.remember(chat, m.MessageID, text)
+			return
+		}
 	}
-	parts := split(text+"\n\n"+footer, 4000)
+	parts := split(text+"\n\n"+plainFooter, 4000)
 	for i, part := range parts {
 		var last *Keyboard
 		if i == len(parts)-1 {
