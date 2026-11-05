@@ -113,6 +113,7 @@ func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (Tur
 	contextUsed, contextMax := 0, 1000000
 	turnTokens := map[string][2]int{}
 	spoke := false // Claude said something after the last compaction
+	compacting := false
 	if *window > 0 {
 		contextMax = *window
 	}
@@ -164,7 +165,9 @@ func readClaudeTurn(next func() ([]byte, bool), ev TurnEvents, window *int) (Tur
 			if e.Subtype == "init" && e.Model != "" {
 				seenModel("claude", e.Model)
 			}
-			if e.Subtype == "status" && e.Status != nil && *e.Status == "compacting" && ev.Step != nil {
+			if e.Subtype == "status" && e.Status != nil && *e.Status == "compacting" && ev.Step != nil && !compacting {
+				// Claude Code repeats this status every 30 s while it compacts: one step
+				compacting = true
 				ev.Step(compactingStep)
 			}
 			if e.Subtype == "compact_boundary" && e.Compact != nil {
