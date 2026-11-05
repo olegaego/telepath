@@ -308,6 +308,7 @@ public enum AgentgramAgentStatus {
         guard let steps = parseSteps(text), let current = steps.last else {
             return nil
         }
+        applyDraftLimits(text)
         var session = Session(bot: bot, thread: thread, state: current.state, detail: current.detail, since: 0, queued: 0, model: engines[bot])
         session.steps = steps
         return session
@@ -315,13 +316,56 @@ public enum AgentgramAgentStatus {
 
     // The helper's steps: a line per step, «✓ » done, the last one «… » going now; nil for any other text
     static func parseSteps(_ text: String) -> [Step]? {
-        let lines = text.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n")
+        let lines = text.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: "\n").filter { !$0.hasPrefix(draftLimitsPrefix) }
         guard let last = lines.last, last.hasPrefix("… "), lines.allSatisfy({ $0.hasPrefix("✓ ") || $0.hasPrefix("… ") }) else {
             return nil
         }
         return lines.map { line in
             let (state, detail) = stepState(String(line.dropFirst(2)))
             return Step(state: state, detail: detail, secs: 0)
+        }
+    }
+
+    // The draft's limits line: «✓ limits claude 1762300000 5h=97:1762380000 week=40:0» (engine, when the helper learned
+    // them, then each window: percent used and when it resets). This is how the numbers come away from home.
+    private static let draftLimitsPrefix = "✓ limits "
+
+    static func parseDraftLimits(_ line: String) -> (engine: String, time: Int32, windows: [String: Limit])? {
+        guard line.hasPrefix(draftLimitsPrefix) else {
+            return nil
+        }
+        let parts = line.dropFirst(draftLimitsPrefix.count).split(separator: " ")
+        guard parts.count >= 3, let time = Int32(parts[1]) else {
+            return nil
+        }
+        let names = ["claude": "Claude Code", "codex": "Codex"]
+        guard let engine = names[String(parts[0])] else {
+            return nil
+        }
+        var windows: [String: Limit] = [:]
+        for part in parts.dropFirst(2) {
+            let pair = part.split(separator: "=")
+            let numbers = pair.count == 2 ? pair[1].split(separator: ":") : []
+            guard numbers.count == 2, let pct = Int(numbers[0]), let resetsAt = Int32(numbers[1]) else {
+                return nil
+            }
+            windows[String(pair[0])] = Limit(pct: pct, resetsAt: resetsAt == 0 ? nil : resetsAt, updatedAt: time)
+        }
+        return (engine, time, windows)
+    }
+
+    // only what is newer than what the phone has: the computer nearby may have told fresher numbers already
+    private static func applyDraftLimits(_ text: String) {
+        for line in text.components(separatedBy: "\n") {
+            guard let parsed = parseDraftLimits(line) else {
+                continue
+            }
+            Queue.mainQueue().async {
+                let known = self.limits[parsed.engine]?.values.compactMap({ $0.updatedAt }).max() ?? 0
+                if parsed.time >= known {
+                    self.limits[parsed.engine] = parsed.windows
+                }
+            }
         }
     }
 

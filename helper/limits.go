@@ -88,6 +88,46 @@ func saveLimits(engine string, l EngineLimits) []LimitWindow {
 	return warn
 }
 
+// Codex's numbers change also when it runs outside the helper: its session files are read every few minutes. Time is
+// when the file was written, so «обновлено N мин назад» stays true. The 80% warning stays for the next turn: only
+// saveLimits, which has a chat to warn in, marks a window as warned.
+const codexLimitsEvery = 5 * time.Minute
+
+func refreshCodexLimits() {
+	if l, ok := codexLimits(); ok {
+		limitsMu.Lock()
+		defer limitsMu.Unlock()
+		f := loadLimits()
+		if l.Time > f.Engines["codex"].Time {
+			f.Engines["codex"] = l
+			data, _ := json.MarshalIndent(f, "", "  ")
+			_ = writeFileAtomic(limitsPath(), data, 0o600)
+		}
+	}
+}
+
+func watchCodexLimits() {
+	for {
+		if codexInstalled() {
+			refreshCodexLimits()
+		}
+		time.Sleep(codexLimitsEvery)
+	}
+}
+
+// The limits' line of the live draft, so the phone has fresh numbers away from home too. It starts with «✓ » as every
+// line of a draft does; Telepath takes it out of the steps. An engine that told nothing yet has no line.
+func draftLimitsLine(engine string, l EngineLimits) string {
+	if len(l.Windows) == 0 {
+		return ""
+	}
+	parts := []string{"✓ limits", engine, fmt.Sprint(l.Time)}
+	for _, w := range l.Windows {
+		parts = append(parts, fmt.Sprintf("%s=%.0f:%d", w.Name, w.Percent, w.ResetsAt))
+	}
+	return strings.Join(parts, " ")
+}
+
 // Claude Code's rate_limit_event: rate_limit_info.unifiedWindows.{five_hour, seven_day}.{utilization 0..1, resetsAt}
 func claudeLimits(raw []byte) (EngineLimits, bool) {
 	var e struct {
@@ -180,7 +220,7 @@ func lastCodexLimits(path string) (EngineLimits, bool) {
 	if last == nil {
 		return EngineLimits{}, false
 	}
-	l := EngineLimits{Plan: last.PlanType}
+	l := EngineLimits{Plan: last.PlanType, Time: modTime(path).Unix()}
 	for _, w := range []*window{last.Primary, last.Secondary} {
 		if w != nil {
 			l.Windows = append(l.Windows, LimitWindow{Name: windowName(w.WindowMinutes), Percent: w.UsedPercent, ResetsAt: w.ResetsAt})

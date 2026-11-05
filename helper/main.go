@@ -61,6 +61,7 @@ func main() {
 		network.Shutdown()
 		os.Exit(0)
 	}()
+	go watchCodexLimits()
 	app := &App{network: network, helpers: map[string]*running{}}
 	network.OnEngine = app.setEngine
 	network.OnStatuses = app.setStatuses
@@ -809,6 +810,7 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 	var stepTimes []time.Time
 	var shown string
 	var lastShown time.Time
+	limitsLine := draftLimitsLine(engine, allLimits()[engine])
 	var mu sync.Mutex
 	finished := false
 	show := func() {
@@ -816,6 +818,9 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 		text := draftText(steps)
 		if text == "" {
 			text = "… Думаю"
+		}
+		if limitsLine != "" {
+			text = limitsLine + "\n" + text
 		}
 		due := withDraft && !finished && time.Since(started) >= draftAfter && (text != shown || time.Since(lastShown) >= draftKeep)
 		mu.Unlock()
@@ -881,6 +886,10 @@ func (h *Helper) runTurn(chat, thread int64, key string, t TopicState, turn Turn
 		},
 		Limits: func(l EngineLimits) {
 			warnings = append(warnings, saveLimits(engine, l)...)
+			line := draftLimitsLine(engine, allLimits()[engine])
+			mu.Lock()
+			limitsLine = line
+			mu.Unlock()
 		},
 		Context: func(used, max int) {
 			h.board.set(key, func(s *TopicStatus) {
